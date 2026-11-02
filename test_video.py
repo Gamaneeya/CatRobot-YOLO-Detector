@@ -4,7 +4,7 @@ from toy_detector import ToyDetector
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--video", required=True)
-parser.add_argument("--conf", type=float, default=0.5)
+parser.add_argument("--conf", type=float, default=0.60)
 parser.add_argument("--stride", type=int, default=1)
 args = parser.parse_args()
 

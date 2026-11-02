@@ -4,7 +4,7 @@ from ultralytics import YOLO
 DEFAULT_MODEL = Path(__file__).resolve().parent / "models" / "best.pt"
 
 class ToyDetector:
-    def __init__(self, model_path=None, confidence=0.5):
+    def __init__(self, model_path=None, confidence=0.60):
         self.model_path = Path(model_path) if model_path else DEFAULT_MODEL
         self.confidence = float(confidence)
         self.model = YOLO(str(self.model_path))

@@ -16,7 +16,7 @@ class ToyDetectorNode(Node):
 
         self.declare_parameter("image_topic", "/camera/image_raw")
         self.declare_parameter("compressed", False)
-        self.declare_parameter("confidence", 0.5)
+        self.declare_parameter("confidence", 0.60)
         self.declare_parameter("inference_hz", 5.0)
         self.declare_parameter("max_frame_age", 1.0)
 
