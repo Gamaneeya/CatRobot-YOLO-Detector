@@ -1,57 +1,108 @@
-
 # CatRobot YOLO V7.2 — ROSMASTER M1
 
-Interactive Cat Robot project using a custom YOLO11n model to detect and follow a green dinosaur toy.
+Interactive Cat Robot using a custom YOLO11n model to detect and follow a green dinosaur toy.
 
-## Current Model
+## Additional Team TODO
 
-- Model: Custom YOLO11n V7.2
-- Class: `green_dino` (ID 0)
-- Weights: `models/best.pt`
-- Image size: 640
-- Development: Windows
-- Target hardware: ROSMASTER M1 with Raspberry Pi
+Original team TODO document:
 
-The V7.2 model has been verified to load on Windows. Raspberry Pi deployment and physical motor control are not yet validated.
+https://docs.google.com/document/d/10HqTygtLJ_eHqW0Ld5s-cQTaiufLqVcBtTM20mGjPLs/edit
 
-## Main Files
+## Project Goal
+
+The robot should be able to:
+
+1. Detect the green dinosaur using its camera.
+2. Show the YOLO bounding box on the web interface.
+3. Turn left or right to face the dinosaur.
+4. Move forward when the dinosaur is centered and the path is safe.
+5. Stop when the target is lost, too close, or an obstacle is detected.
+6. Support manual control, emergency stopping, meow sounds, and buzzer controls.
+
+**Important:** Some features are implemented in simulation but have not yet been validated on the physical robot.
+
+## Model Information
+
+| Property | Value |
+|---|---|
+| Architecture | YOLO11n |
+| Custom model | V7.2 |
+| Class | `green_dino` |
+| Class ID | 0 |
+| Weight file | `models/best.pt` |
+| Input size | 640 |
+| Framework | Ultralytics |
+
+V7.2 is a custom training version of YOLO11n, not the separate YOLOv7 architecture.
+
+The model was verified on Windows. Raspberry Pi inference speed and real-robot performance still require testing.
+
+## Project Files
 
 | File | Purpose |
 |---|---|
-| `models/best.pt` | Trained YOLO V7.2 weights |
-| `robot_teleop_yolo_sim.py` | Windows YOLO + Auto Follow simulator |
-| `robot_teleop_yolo_pi_dryrun.py` | Raspberry Pi camera + YOLO dry run |
-| `docs/ROBOT_SETUP_TH.md` | Thai step-by-step Raspberry Pi setup |
-| `robot_teleop.py` | Teammate's original robot-control reference, not modified |
-| `toy_detector.py` | YOLO detector utility |
-| `ros2_toy_detector_node.py` | Separate experimental ROS2 integration |
+| `models/best.pt` | Trained YOLO V7.2 model |
+| `robot_teleop_yolo_sim.py` | Windows simulator with Mock Motor |
+| `robot_teleop_yolo_pi_dryrun.py` | Raspberry Pi camera + YOLO + Mock Motor |
+| `robot_teleop_yolo_robot.py` | Planned real-motor integration; not yet included in the verified release |
+| `toy_detector.py` | YOLO detection utility |
+| `test_video.py` | Video inference test |
+| `ros2_toy_detector_node.py` | Experimental ROS2 detection integration |
+| `requirements.txt` | Python dependencies |
+| `docs/FRIEND_TODO_TH.md` | Main setup and testing checklist for the teammate |
+| `docs/ROBOT_SETUP_TH.md` | Additional setup and troubleshooting reference |
 
-## Deployment Method
+The teammate's original `robot_teleop.py` already exists on the Raspberry Pi. It must not be overwritten.
 
-The current deployment path runs Python directly on the Raspberry Pi.
+## Current Development Status
 
-Docker is NOT required for this setup.
+| Component | Status |
+|---|---|
+| YOLO V7.2 on Windows | Verified |
+| Windows Auto Follow simulation | Tested |
+| Raspberry Pi Dry Run syntax | Passed |
+| Raspberry Pi camera + YOLO | Pending hardware test |
+| Real Motor integration | Pending validation |
+| LiDAR obstacle detection | Not yet integrated |
+| Automatic physical following | Not yet validated |
+| Raspberry Pi meow audio | Pending integration test |
 
-The teammate's existing `robot_teleop.py` must not be overwritten.
+A Python syntax check does not guarantee that the program will run correctly on Raspberry Pi hardware.
 
-Do not run the original robot teleoperation program and the new dry-run program simultaneously. Both may need the camera and port 8080.
+## Deployment Approach
 
-## Before Disconnecting the Internet
+The current deployment uses Python directly on the Raspberry Pi host.
 
-1. Download the repository to the Raspberry Pi.
-2. Check OS architecture and Python version.
-3. Install Python dependencies in a project virtual environment.
-4. Verify PyTorch, OpenCV and Ultralytics imports.
-5. Verify the V7.2 model loads and runs inference.
-6. Check the camera device.
-7. Prepare and validate offline dependency files.
-8. Follow `docs/ROBOT_SETUP_TH.md` for detailed commands and troubleshooting.
+**Docker is not required.**
 
-Do not assume Windows dependencies can run on Raspberry Pi.
+ROS2 integration remains optional and is not required for the initial OpenCV-based Dry Run.
 
-## Raspberry Pi Dry Run
+The original robot program and the new YOLO programs must not run simultaneously if they share the same camera or port 8080.
 
-Once setup is completed, activate the project's Python environment and run:
+## START HERE — For the Teammate
+
+Follow this document in order:
+
+**[Teammate Setup & Test Checklist](docs/FRIEND_TODO_TH.md)**
+
+The checklist covers:
+
+- Raspberry Pi hardware and environment checks
+- Downloading the code while online
+- Installing and verifying Python dependencies
+- Preparing offline installation files
+- Testing YOLO and the camera
+- Switching to the robot network
+- Raspberry Pi Dry Run
+- Motor and LiDAR verification
+- Supervised physical Auto Follow testing
+- Troubleshooting and reporting results
+
+**Do not disconnect from the internet until the online installation and offline verification steps have passed.**
+
+## Quick Start — Raspberry Pi Dry Run
+
+After completing the installation checklist:
 
 ```bash
 cd ~/CatRobot-YOLO-Detector
@@ -59,43 +110,85 @@ source .venv/bin/activate
 python robot_teleop_yolo_pi_dryrun.py
 ```
 
-Open the web interface using the Raspberry Pi's current IP address:
+Open:
 
 `http://ROBOT_IP:8080`
 
-Replace `ROBOT_IP` with the actual IP.
+Replace `ROBOT_IP` with the current Raspberry Pi IP address.
 
-The dry-run program uses a MOCK motor. It must not move the real robot.
+Expected behavior:
 
-Expected dry-run capabilities:
+- Camera stream appears in the browser.
+- YOLO detects the green dinosaur.
+- Bounding boxes and confidence are displayed.
+- AUTO FOLLOW calculates LEFT / RIGHT / FORWARD / STOP.
+- Motor commands are simulated.
 
-- Camera video streaming
-- YOLO Green Dino detection
-- Bounding-box visualization
-- Left / right / forward / stop decision simulation
-- Manual / Auto / Stop web controls
-- Mock motor output
+**The Dry Run must never move the physical robot.**
 
-Meow audio in this dry-run file is not yet supported on Raspberry Pi because it uses Windows audio code.
+## Real Robot Auto Follow
 
-## Safety and Current Limitations
+Real movement requires the separate `robot_teleop_yolo_robot.py` program.
 
-- Physical Auto Follow is NOT enabled.
-- LiDAR obstacle avoidance is NOT integrated.
-- Bounding-box area is not a reliable physical distance measurement.
-- Low-confidence detections may include false positives.
-- Real movement must not be enabled until motor, LiDAR and stop behavior are independently tested.
+Do not use the real-motor program until:
 
-## Original Robot Program
+- The actual Motor Backend has been verified.
+- The motor directions have been tested safely.
+- The LiDAR produces valid distance readings.
+- Obstacle stopping is implemented and tested.
+- Target-loss and stale-camera stopping work.
+- The system starts in STOPPED mode.
+- The emergency stop procedure has been demonstrated.
+- Someone is physically present to supervise the test.
 
-The teammate's existing `robot_teleop.py` remains on the Raspberry Pi.
+A bounding box is not a reliable physical distance sensor.
 
-Our new programs are separate files. Do not overwrite or delete the original program.
+## Controls
 
-## Legacy Documentation
+The web interface includes these modes:
 
-Previous ROS2 and Docker research is archived in:
+| Control | Purpose |
+|---|---|
+| MANUAL | Manual driving controls |
+| AUTO FOLLOW | Follow controller |
+| STOP | Latched software stop |
+| WASD | Manual movement |
+| Arrow keys | Camera servo commands, if supported |
+| C | Center camera, if supported |
+| M / 6–0 | Meow sound variants |
+| 1–5 | Buzzer patterns, including SOS |
+| Space | STOPPED mode |
 
-`docs/README_LEGACY_ROS2.md`
+Some controls are simulated or disabled depending on the file being run.
 
-It is reference material only, not the current setup procedure.
+Web STOP is not a substitute for a physical emergency stop.
+
+## Audio
+
+The original robot program uses Raspberry Pi audio utilities such as `aplay` and `mpg123`.
+
+The current Dry Run includes Windows-specific `winsound` playback code and should not be treated as a verified Raspberry Pi audio implementation.
+
+Audio must be tested separately before the final demonstration.
+
+## Network and Security
+
+Port 8080 serves the local web interface.
+
+The current web control interface does not provide user authentication. Run it only on a trusted local network. Do not expose port 8080 to the public internet.
+
+Keep the original robot program available as a fallback, and avoid configuring the new program to start automatically until testing is complete.
+
+## Troubleshooting
+
+For installation errors, camera problems, PyTorch issues, network disconnections, and motor or LiDAR test failures, see:
+
+`docs/FRIEND_TODO_TH.md`
+
+## Safety
+
+The real robot must be supervised during all physical movement tests.
+
+Start with wheels lifted securely, use low speed, keep a person ready to cut motor power, and test on a clear floor only after the safety checks pass.
+
+If any stop condition or sensor verification fails, do not proceed to floor-level AUTO FOLLOW.
