@@ -653,84 +653,146 @@ http://ROBOT_IP:8080
 
 หากทิศผิดหรือไม่หยุด ให้หยุดทดลองและแก้ปัญหาก่อน
 
-## STEP 12 — AUTO FOLLOW + LIDAR TEST (WHEELS UP)
+### STEP 11.1 — หลัง MANUAL Test ผ่านแล้ว ต้องทำอะไรต่อ?
 
-### MANUAL / AUTO / STOP — Switch directly on the Web
+เมื่อทดสอบมอเตอร์ใน STEP 11 ผ่านทั้งหมดแล้ว ให้เปลี่ยนจากโปรแกรมทดสอบมอเตอร์แยกไปเป็นโปรแกรมรวม YOLO + LiDAR + Motor
 
-In `auto-supervised`, start the program once.
-The initial web mode is `STOPPED`.
+**ทำตามทีละข้อ**
 
-After the required wheels-up and safety checks:
+1. กลับไปที่หน้าเว็บ `http://ROBOT_IP:8080`
+2. กดปุ่ม **STOP**
+3. ตรวจให้แน่ใจว่าล้อหยุดหมุนสนิท
+4. กลับไปที่ Terminal ของ Raspberry Pi ที่กำลังรัน `manual-wheels-up`
+5. กด `Ctrl+C` ใน Terminal เพื่อปิดโปรแกรมทดสอบ
+6. ตรวจว่า Terminal กลับมารับคำสั่งได้ และโปรแกรมเดิมไม่ใช้ Port 8080 แล้ว
+7. ทำ STEP 12 ต่อ
 
-1. Click **MANUAL** to control the wheels with WASD.
-2. Click **AUTO FOLLOW** to let YOLO control the wheels.
-3. Click **MANUAL** again to return to WASD.
-4. Click **STOP** or press SPACE to stop.
+**ทำไมต้องปิดโปรแกรมนี้?**
 
-No Python restart is required when switching web modes.
+เพราะ `manual-wheels-up` เป็นโปรแกรมทดสอบมอเตอร์แยกที่ยังไม่เปิด AUTO FOLLOW
 
-**Both MANUAL and AUTO are LiDAR-gated in this mode.**
-If LiDAR is unavailable, stale, or reports an obstacle,
-movement will be blocked.
+เมื่อเปิดโปรแกรมรวมใน STEP 12 แล้ว จะสามารถกด MANUAL ↔ AUTO FOLLOW ↔ STOP บนหน้าเว็บได้โดยไม่ต้องปิด Python อีก
 
-The separate `manual-wheels-up` mode still exists
-for early isolated motor testing without LiDAR.
+---
 
-A mode switch clears old keyboard commands.
-AUTO still requires the browser heartbeat and valid YOLO detections.
+## STEP 12 — เปิดโปรแกรมรวม MANUAL + AUTO FOLLOW + LiDAR (WHEELS UP)
 
-**Not approved for floor driving until physical emergency
-stopping, sensor blind spots, and stopping distance
-have been tested on the actual robot.**
+**ขั้นนี้ยังต้องยกล้อหุ่นยนต์พ้นพื้นอย่างมั่นคง และมีคนพร้อมตัดกำลังมอเตอร์ทันที**
 
+ต้องผ่าน MANUAL Test, LiDAR Calibration และการทดสอบระบบหยุดเบื้องต้นก่อน
 
-หลังผ่าน Manual Test และสอบเทียบ LiDAR แล้วเท่านั้น
+### STEP 12.1 — เปิดโปรแกรมรวมครั้งเดียว
 
-ใช้ LiDAR Port และ Front Angle ที่บันทึกไว้ใน PHASE A
+ใน Terminal ของ Raspberry Pi พิมพ์:
 
-ตัวอย่าง:
+```bash
+cd ~/CatRobot-YOLO-Detector
+source .venv/bin/activate
+```
+
+จากนั้นรัน:
 
 ```bash
 python robot_teleop_yolo_lidar.py --mode auto-supervised --port /dev/ttyUSB0 --front-angle 0 --confirm-orientation --confirm-supervised
 ```
 
-เปลี่ยน Port และ Angle ให้ตรงกับค่าจริง
+**สำคัญ:** เปลี่ยน `/dev/ttyUSB0` และ `--front-angle 0` เป็นค่าที่ตรวจสอบและ Calibrate ได้จริงใน PHASE A
 
-**คำสั่งนี้อนุญาตให้ส่งคำสั่งมอเตอร์จริงได้ จึงต้องยกล้อพ้นพื้นและมีคนควบคุมอยู่ตลอด**
+โปรแกรมนี้จะเปิดระบบ YOLO, LiDAR, Motor และ Web Interface พร้อมกัน
+
+ไม่ต้องแก้ `ENABLE_REAL_MOTOR` หรือ `ENABLE_AUTO_FOLLOW` ในไฟล์ Python ด้วยมือ
+
+หากมี Error ให้แก้ก่อนทำขั้นตอนถัดไป
+
+### STEP 12.2 — เปิดหน้าเว็บควบคุม
+
+1. เชื่อมคอมพิวเตอร์กับ Robot Wi-Fi เดียวกับ Raspberry Pi
+2. เปิด Chrome หรือ Browser
+3. เข้า `http://ROBOT_IP:8080`
+4. ตรวจว่าเห็นภาพกล้อง
+5. ตรวจว่าเห็นปุ่ม MANUAL, AUTO FOLLOW และ STOP
+6. ตรวจว่าตอนเริ่มแสดง `Mode: STOPPED`
+7. ล้อหุ่นยนต์ต้องยังไม่หมุน
+
+สามารถเปิด `http://ROBOT_IP:8080/status` เพื่อดูรายละเอียดสถานะระบบได้
+
+### STEP 12.3 — ทดลองสลับ MANUAL / AUTO / STOP บนหน้าเว็บ
+
+**ทดสอบ MANUAL**
+
+1. กด **MANUAL**
+2. กด W สั้น ๆ → ตรวจว่าล้อหมุนไปทิศเดินหน้า
+3. กด A สั้น ๆ → ตรวจว่าล้อหมุนไปทิศเลี้ยวซ้าย
+4. กด D สั้น ๆ → ตรวจว่าล้อหมุนไปทิศเลี้ยวขวา
+5. ปล่อยปุ่มทั้งหมด → ล้อต้องหยุด
+
+การสั่งล้อในโหมดนี้ยังต้องผ่าน LiDAR Safety Check
+
+**ทดสอบ AUTO FOLLOW**
+
+1. กด **AUTO FOLLOW** โดยไม่ต้องปิด Python
+2. นำ Green Dino ไปไว้หน้ากล้อง
+3. ตรวจว่า YOLO แสดง Bounding Box รอบ Dino
+4. ขยับ Dino ไปด้านซ้าย → ตรวจคำสั่ง TURN LEFT
+5. ขยับ Dino ไปด้านขวา → ตรวจคำสั่ง TURN RIGHT
+6. วาง Dino ตรงกลาง → ตรวจคำสั่ง FORWARD เมื่อผ่านเงื่อนไข
+7. นำ Dino ออกจากภาพ → ล้อต้องหยุด
+8. กด STOP → ล้อต้องหยุดและเข้า STOPPED
+
+**ทดลองกลับจาก AUTO เป็น MANUAL**
+
+1. กด **MANUAL** อีกครั้งบนหน้าเว็บ
+2. ตรวจว่า Mode เปลี่ยนเป็น MANUAL
+3. ทดลอง WASD สั้น ๆ อีกครั้ง
+4. กด STOP เพื่อจบการทดสอบ
+
+**จำง่าย ๆ**
+
+- MANUAL → AUTO FOLLOW: กดปุ่ม AUTO FOLLOW บนเว็บ
+- AUTO FOLLOW → MANUAL: กดปุ่ม MANUAL บนเว็บ
+- MANUAL / AUTO → STOP: กด STOP
+- ไม่ต้อง Restart Python เพื่อสลับโหมด
+- ไม่ต้องเปลี่ยน Wi-Fi
+- ไม่ต้องแก้ตัวแปรในโค้ด
+
+### STEP 12.4 — ทดสอบ LiDAR Safety
+
+ในโหมดโปรแกรมรวม ทั้ง MANUAL และ AUTO ต้องหยุดการเคลื่อนที่หาก LiDAR ไม่ผ่านเงื่อนไข
+
+ทดสอบโดยยังยกล้อพ้นพื้น:
+
+- [ ] ไม่มีข้อมูล LiDAR → ล้อไม่หมุน
+- [ ] ข้อมูล LiDAR เก่า → ล้อหยุด
+- [ ] สิ่งกีดขวางด้านหน้า → ล้อหยุด
+- [ ] สิ่งกีดขวางด้านซ้าย → ล้อหยุด
+- [ ] สิ่งกีดขวางด้านขวา → ล้อหยุด
+- [ ] Dino หายจากกล้องใน AUTO → ล้อหยุด
+- [ ] ขาด Web Heartbeat → ล้อหยุด
+- [ ] กด STOP → ล้อหยุด
+- [ ] สลับ MANUAL ↔ AUTO ได้โดยไม่มีคำสั่งเก่าค้าง
+
+### STEP 12.5 — หากกด AUTO แล้ว Robot ไม่ขยับ
 
 เปิด:
 
-```text
-http://ROBOT_IP:8080
-```
+`http://ROBOT_IP:8080/status`
 
-ตรวจสถานะ:
+ตรวจค่าต่อไปนี้:
 
-```text
-http://ROBOT_IP:8080/status
-```
+| Status | สิ่งที่ต้องตรวจ |
+|---|---|
+| `mode` | เป็น AUTO หรือไม่ |
+| `motor_enabled` | เป็น true หรือไม่ |
+| `auto_enabled` | เป็น true หรือไม่ |
+| `lidar_ready` | เป็น true หรือไม่ |
+| `detection` | YOLO พบ Dino หรือไม่ |
+| `motor_action` | โปรแกรมสั่งอะไร หรือหยุดเพราะอะไร |
 
-### YOLO Follow Test
+หากแสดง `AUTO BLOCKED`, `LIDAR NOT READY` หรือไม่พบ Dino ต้องแก้สาเหตุให้ถูกต้องก่อน ไม่ปิด Safety Check เพื่อบังคับให้ล้อหมุน
 
-- [ ] Dino อยู่ซ้าย → TURN LEFT
-- [ ] Dino อยู่ขวา → TURN RIGHT
-- [ ] Dino อยู่กลาง → FORWARD REQUESTED เมื่อผ่านเงื่อนไข
-- [ ] Dino หาย → STOP
-- [ ] Confidence ต่ำกว่าเกณฑ์ → STOP
-- [ ] กด STOP → ล้อต้องหยุด
+**หากข้อใดใน STEP 12 ไม่ผ่าน ห้ามทดลอง AUTO บนพื้นจริง**
 
-### LiDAR Safety Test
-
-- [ ] LiDAR ไม่พร้อม → ล้อไม่หมุน
-- [ ] มีสิ่งกีดขวางด้านหน้า → ล้อหยุด
-- [ ] มีสิ่งกีดขวางด้านซ้าย → ล้อหยุด
-- [ ] มีสิ่งกีดขวางด้านขวา → ล้อหยุด
-- [ ] ข้อมูล LiDAR เก่า → ล้อหยุด
-- [ ] กล้องอ่านภาพไม่ได้ → AUTO หยุด
-- [ ] Web Heartbeat ขาด → ล้อหยุด
-- [ ] กด STOP → ล้อหยุดและไม่กลับมาขยับเอง
-
-ถ้าข้อใดไม่ผ่าน ห้ามนำหุ่นยนต์ลงพื้นเพื่อทดลอง AUTO
+การทดลองบนพื้นต้องผ่านเงื่อนไขใน STEP 14 ก่อน โดยเฉพาะระบบหยุดฉุกเฉินที่ไม่พึ่งซอฟต์แวร์ ระยะเบรกจริง และสิ่งกีดขวางที่ LiDAR 2D อาจตรวจไม่พบ
 
 ## STEP 13 — ทดสอบ Meow และ Buzzer
 
