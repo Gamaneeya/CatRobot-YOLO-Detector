@@ -12,3 +12,6 @@ runs/
 *.avi
 .vscode/
 .idea/
+offline/
+.venv_offline_test/
+*.whl
