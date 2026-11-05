@@ -126,21 +126,11 @@ def main():
         robot.ENABLE_AUTO_FOLLOW = True
 
         robot.lidar_clear_for_motion = lidar.is_clear
+        robot.MANUAL_LIDAR_REQUIRED = True
 
-        original_set_mode = robot.set_mode
-
-        def protected_set_mode(new_mode):
-            if new_mode == "MANUAL":
-                return (
-                    False,
-                    "MANUAL DISABLED DURING AUTO TEST"
-                )
-
-            return original_set_mode(new_mode)
-
-        robot.set_mode = protected_set_mode
-
-        print("SUPERVISED AUTO TEST")
+        print("SUPERVISED MANUAL + AUTO TEST")
+        print("Web mode switching: ENABLED")
+        print("Both modes require LiDAR clearance")
         print("LiDAR port:", args.port)
         print("Calibrated front angle:", args.front_angle)
         print("Physical emergency stop required.")

@@ -655,6 +655,35 @@ http://ROBOT_IP:8080
 
 ## STEP 12 — AUTO FOLLOW + LIDAR TEST (WHEELS UP)
 
+### MANUAL / AUTO / STOP — Switch directly on the Web
+
+In `auto-supervised`, start the program once.
+The initial web mode is `STOPPED`.
+
+After the required wheels-up and safety checks:
+
+1. Click **MANUAL** to control the wheels with WASD.
+2. Click **AUTO FOLLOW** to let YOLO control the wheels.
+3. Click **MANUAL** again to return to WASD.
+4. Click **STOP** or press SPACE to stop.
+
+No Python restart is required when switching web modes.
+
+**Both MANUAL and AUTO are LiDAR-gated in this mode.**
+If LiDAR is unavailable, stale, or reports an obstacle,
+movement will be blocked.
+
+The separate `manual-wheels-up` mode still exists
+for early isolated motor testing without LiDAR.
+
+A mode switch clears old keyboard commands.
+AUTO still requires the browser heartbeat and valid YOLO detections.
+
+**Not approved for floor driving until physical emergency
+stopping, sensor blind spots, and stopping distance
+have been tested on the actual robot.**
+
+
 หลังผ่าน Manual Test และสอบเทียบ LiDAR แล้วเท่านั้น
 
 ใช้ LiDAR Port และ Front Angle ที่บันทึกไว้ใน PHASE A

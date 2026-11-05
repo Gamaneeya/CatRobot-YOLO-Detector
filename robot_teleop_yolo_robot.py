@@ -25,6 +25,7 @@ MODEL_PATH = ROOT / "models" / "best.pt"
 
 ENABLE_REAL_MOTOR = False
 ENABLE_AUTO_FOLLOW = False
+MANUAL_LIDAR_REQUIRED = False
 
 YOLO_CONF = 0.10
 TRACK_CONF = 0.60
@@ -126,35 +127,51 @@ class Motor:
         print("Auto follow enabled:", ENABLE_AUTO_FOLLOW)
         print("LiDAR safety: NOT INTEGRATED")
 
-    def send(self, v, w):
+    def send(self, v, w, expected_mode=None):
         v = max(-0.08, min(0.08, float(v)))
         w = max(-0.25, min(0.25, float(w)))
 
-        with lock:
-            active_mode = mode
-            heartbeat_ok = time.monotonic() - last <= TIMEOUT
+        with self.io_lock:
+            with lock:
+                active_mode = mode
+                now = time.monotonic()
 
-        if not ENABLE_REAL_MOTOR:
-            v = 0.0
-            w = 0.0
+                heartbeat_ok = now - last <= TIMEOUT
+                detection_ok = (
+                    now - follow["at"] <= MAX_AUTO_AGE
+                )
 
-        elif active_mode == "STOPPED":
-            v = 0.0
-            w = 0.0
+                allowed = (
+                    ENABLE_REAL_MOTOR
+                    and active_mode in ("MANUAL", "AUTO")
+                    and heartbeat_ok
+                    and (
+                        expected_mode is None
+                        or expected_mode == active_mode
+                    )
+                )
 
-        elif not heartbeat_ok:
-            v = 0.0
-            w = 0.0
+                if allowed and active_mode == "AUTO":
+                    allowed = (
+                        ENABLE_AUTO_FOLLOW
+                        and detection_ok
+                        and lidar_clear_for_motion()
+                    )
 
-        elif active_mode == "AUTO":
-            if not ENABLE_AUTO_FOLLOW or not lidar_clear_for_motion():
-                v = 0.0
-                w = 0.0
+                elif (
+                    allowed
+                    and active_mode == "MANUAL"
+                    and MANUAL_LIDAR_REQUIRED
+                ):
+                    allowed = lidar_clear_for_motion()
+
+                if not allowed:
+                    v = 0.0
+                    w = 0.0
+
+                self.bot.set_car_motion(v, 0, w)
 
         drive = (round(v, 3), round(w, 3))
-
-        with self.io_lock:
-            self.bot.set_car_motion(v, 0, w)
 
         if drive != self.last_drive:
             print(
@@ -384,6 +401,13 @@ def set_mode(new_mode):
 
         if not lidar_clear_for_motion():
             return False, "AUTO BLOCKED: LIDAR NOT READY"
+
+    if (
+        new_mode == "MANUAL"
+        and MANUAL_LIDAR_REQUIRED
+        and not lidar_clear_for_motion()
+    ):
+        return False, "MANUAL BLOCKED: LIDAR NOT READY"
 
     with lock:
         mode = new_mode
@@ -803,7 +827,8 @@ def control_loop(motor_instance):
 
             actual_v, actual_w = motor_instance.send(
                 v,
-                w
+                w,
+                expected_mode=active_mode
             )
 
             if not ENABLE_REAL_MOTOR:
@@ -815,6 +840,13 @@ def control_loop(motor_instance):
                     or not lidar_clear_for_motion()
                 ):
                     action = "AUTO SAFETY BLOCK - STOP"
+
+            elif (
+                active_mode == "MANUAL"
+                and MANUAL_LIDAR_REQUIRED
+                and not lidar_clear_for_motion()
+            ):
+                action = "MANUAL LIDAR BLOCK - STOP"
 
             with lock:
                 if mode == "STOPPED":
