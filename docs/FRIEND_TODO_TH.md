@@ -10,6 +10,24 @@
 
 ---
 
+
+> **UPDATE — T-MINI Plus LiDAR**
+>
+> LiDAR ของทีมคือ **YDLIDAR T-MINI Plus**
+>
+> มีไฟล์ Integration เพิ่มแล้ว:
+> `tmini_plus_lidar.py` และ `robot_teleop_yolo_lidar.py`
+>
+> ให้ใช้ [T-MINI Plus Setup Guide](TMINI_PLUS_SETUP_TH.md)
+> สำหรับติดตั้ง SDK, ตรวจ Serial Port, Calibrate,
+> ทดลอง Motor แบบยกล้อ และทดสอบ AUTO ภายใต้การดูแล
+>
+> PHASE 7–9 ในเอกสารเดิมเป็นภาพรวมเท่านั้น
+> ให้ยึดรายละเอียดของ T-MINI Plus Guide เป็นหลัก
+>
+> ยังห้ามทดลอง AUTO บนพื้นจนกว่าจะตรวจการหยุด
+> และข้อจำกัดของ LiDAR แบบ 2D ครบถ้วน
+
 # PHASE 0 — ก่อนเริ่ม
 
 ## 0.1 เตรียมอุปกรณ์
@@ -37,9 +55,9 @@ https://github.com/Gamaneeya/CatRobot-YOLO-Detector
 - [ ] `robot_teleop_yolo_pi_dryrun.py`
 - [ ] `docs/FRIEND_TODO_TH.md`
 
-ไฟล์ `robot_teleop_yolo_robot.py` จะต้องมีเพิ่มเติมก่อนเริ่มทดสอบมอเตอร์ผ่านโปรแกรม YOLO จริง
+ไฟล์ `robot_teleop_yolo_robot.py` มีอยู่ใน Repository แล้ว แต่ยังไม่ได้รับการยืนยันการทำงานบนฮาร์ดแวร์จริง
 
-ถ้าไม่มีไฟล์นี้ **ทำได้ถึง Dry Run เท่านั้น** ห้ามใช้ Dry Run แทนไฟล์มอเตอร์จริง
+การทดสอบมอเตอร์และ LiDAR ต้องทำตาม `docs/TMINI_PLUS_SETUP_TH.md` ก่อน และห้ามใช้ Dry Run แทนไฟล์มอเตอร์จริง
 
 ---
 
@@ -500,7 +518,7 @@ http://ROBOT_IP:8080
 
 ขั้นนี้ต้องมี `robot_teleop_yolo_robot.py` เวอร์ชันที่ทีมตรวจสอบแล้วอยู่ใน Repository
 
-หากยังไม่มี ให้หยุดที่ PHASE 6 และรายงานว่า `REAL ROBOT FILE NOT READY`
+ไฟล์ Robot มีอยู่แล้ว แต่ยังต้องตรวจ Motor Library, Motor Direction และระบบหยุดตามคู่มือ T-MINI Plus ก่อน
 
 ## 7.1 ตรวจโปรแกรมก่อนใช้งาน
 
@@ -548,7 +566,7 @@ http://ROBOT_IP:8080
 ## 8.1 ตรวจอุปกรณ์
 
 ```bash
-ls -l /dev/rplidar
+ls -l /dev/serial/by-id/
 ```
 
 ```bash

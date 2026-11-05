@@ -44,7 +44,7 @@ The model was verified on Windows. Raspberry Pi inference speed and real-robot p
 | `models/best.pt` | Trained YOLO V7.2 model |
 | `robot_teleop_yolo_sim.py` | Windows simulator with Mock Motor |
 | `robot_teleop_yolo_pi_dryrun.py` | Raspberry Pi camera + YOLO + Mock Motor |
-| `robot_teleop_yolo_robot.py` | Planned real-motor integration; not yet included in the verified release |
+| `robot_teleop_yolo_robot.py` | Real-motor controller with safety locks; hardware validation pending |
 | `toy_detector.py` | YOLO detection utility |
 | `test_video.py` | Video inference test |
 | `ros2_toy_detector_node.py` | Experimental ROS2 detection integration |
@@ -63,7 +63,7 @@ The teammate's original `robot_teleop.py` already exists on the Raspberry Pi. It
 | Raspberry Pi Dry Run syntax | Passed |
 | Raspberry Pi camera + YOLO | Pending hardware test |
 | Real Motor integration | Pending validation |
-| LiDAR obstacle detection | Not yet integrated |
+| LiDAR obstacle detection | Experimental T-MINI Plus integration added; Pi validation pending |
 | Automatic physical following | Not yet validated |
 | Raspberry Pi meow audio | Pending integration test |
 
@@ -125,6 +125,43 @@ Expected behavior:
 - Motor commands are simulated.
 
 **The Dry Run must never move the physical robot.**
+
+
+## Experimental T-MINI Plus LiDAR Integration
+
+The repository now includes an experimental Python integration
+for YDLIDAR T-MINI Plus.
+
+New files:
+
+- `tmini_plus_lidar.py` - Official SDK reader and conservative scan checking
+- `robot_teleop_yolo_lidar.py` - Entry point for scan, motor, and supervised AUTO tests
+- `tests/test_tmini_plus_lidar.py` - Safety logic unit tests
+- `docs/TMINI_PLUS_SETUP_TH.md` - Full teammate setup and test instructions
+
+Start with the guide:
+
+**[T-MINI Plus LiDAR Setup](docs/TMINI_PLUS_SETUP_TH.md)**
+
+The original `robot_teleop_yolo_robot.py` is retained.
+The LiDAR-aware entry point connects to it without requiring Docker or ROS2.
+
+Modes:
+
+```bash
+python robot_teleop_yolo_lidar.py --mode scan-only --port /dev/ttyUSB0 --front-angle 0
+```
+
+```bash
+python robot_teleop_yolo_lidar.py --mode manual-wheels-up --confirm-wheels-up
+```
+
+The last mode, `auto-supervised`, requires calibrated orientation,
+verified stopping, physical supervision, and additional command-line confirmations.
+
+**This is experimental integration, not an autonomous safety certification.**
+The LiDAR is 2D and may miss low objects, including the dinosaur toy.
+Physical emergency stopping and supervised testing remain mandatory.
 
 ## Real Robot Auto Follow
 
