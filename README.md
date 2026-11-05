@@ -3,9 +3,6 @@
 
 Interactive Cat Robot project using a custom YOLO11n model to detect and follow a green dinosaur toy.
 
-## TODO
-https://docs.google.com/document/d/10HqTygtLJ_eHqW0Ld5s-cQTaiufLqVcBtTM20mGjPLs/edit?tab=t.0#heading=h.czq45x89b343
-
 ## Current Model
 
 - Model: Custom YOLO11n V7.2
