@@ -1,923 +1,253 @@
-# CatRobot YOLO V7.2 — ROSMASTER M1 + T-MINI Plus LiDAR
+# ROSMASTER M1 — Real Dino Follow (Raspberry Pi + YOLO + ROS2 Docker)
 
-## Complete Raspberry Pi Setup & Robot Testing Guide
+> คู่มือส่งต่อให้สมาชิกทีม | อัปเดต 7 พฤศจิกายน 2026 | ฮาร์ดแวร์เป้าหมาย: ROSMASTER M1, Raspberry Pi, USB camera, YDLIDAR T-MINI Plus
+>
+> **นี่คือชุดสั่งหุ่นยนต์จริง ไม่ใช่ dry run**. ต้องยกล้อพ้นพื้นและเตรียมตัดไฟมอเตอร์ได้ทันทีในการทดสอบขั้นแรก ห้ามถือว่า ROS2 log เป็นหลักฐานว่าล้อหยุดได้ปลอดภัยในสถานการณ์จริง
 
-**อ่านและทำตามไฟล์นี้ไฟล์เดียว ตั้งแต่เริ่มติดตั้งจนถึงทดสอบหุ่นยนต์**
+## 1. ระบบนี้ทำอะไร
 
-โปรเจกต์ Interactive Cat Robot ใช้ YOLO11n V7.2 ตรวจจับตุ๊กตา Green Dino และใช้ YDLIDAR T-MINI Plus ตรวจสิ่งกีดขวางก่อนอนุญาตให้ ROSMASTER M1 เคลื่อนที่
+- Web UI เดิมจาก `robot_teleop_yolo_robot.py` ที่ `http://<PI_IP>:8080`: Live camera, YOLO bounding box, MANUAL / AUTO FOLLOW / STOP, WASD, เสียงแมว, Buzzer, Camera Servo
+- `run_teleop_yolo_real.py`: เรียกใช้ UI/YOLO เดิมและฟังก์ชันเสียงจาก `robot_teleop.py`, ใช้ Main Thread รัน YOLO และตรวจ LiDAR ก่อนส่งคำสั่งเคลื่อนที่
+- `dino_motion.py`: เชื่อม Raspberry Pi ไปยัง ROS2 ภายใน **Docker container ที่มีอยู่เดิม** (`/cmd_vel`, `/Servo`, `/Buzzer`) โดยไม่ให้ Python บน Pi เปิด Serial Motor โดยตรง และอ่าน LiDAR ในอีก Process
+- Docker ของ Yahboom รัน **driver-only** `ros2 run yahboomcar_bringup Mcnamu_driver_M1` บน ROS Domain 62; ตัว Driver เป็นผู้ครองพอร์ต Motor Controller
 
-ไม่ใช้ Docker และไม่จำเป็นต้องติดตั้ง ROS2 เพิ่ม ห้ามเขียนทับ `robot_teleop.py` ต้นฉบับของทีม
+**ห้ามเปิด** `robot_teleop.py`, `robot_teleop_yolo_robot.py`, `dino_live.py`, `cat_robot_follow.py`, หรือ ROS2 launch motor-driver ตัวที่สอง **พร้อมกัน** กับ `run_teleop_yolo_real.py`.
 
-**IMPORTANT:** โค้ดยังไม่ได้ผ่านการทดสอบกับหุ่นยนต์จริงทั้งหมด ห้ามทดลอง AUTO FOLLOW บนพื้นจนกว่าจะผ่านการทดสอบมอเตอร์ LiDAR ระบบหยุด และข้อจำกัดของเซนเซอร์ครบถ้วน
+## 2. ไฟล์ใน Repository
 
----
+โครงสร้างขั้นต่ำที่ต้องมีบน Raspberry Pi:
 
-# PHASE A — ONLINE SETUP
-
-**ต้องทำ STEP 1–8 ให้เสร็จขณะ Raspberry Pi ยังมีอินเทอร์เน็ต**
-
-ใน PHASE นี้ เราจะดาวน์โหลด ติดตั้ง และตรวจทุกอย่างให้พร้อมก่อนเปลี่ยนไป Robot Wi-Fi ที่ไม่มีอินเทอร์เน็ต
-
-อย่าเปลี่ยน Wi-Fi ระหว่าง STEP 1–8
-
-## STEP 1 — ตรวจ Raspberry Pi
-
-เปิด Terminal บน Raspberry Pi หรือ SSH จากคอมพิวเตอร์:
-
-```bash
-ssh USERNAME@ROBOT_IP
+```text
+CatRobot-YOLO-Detector/
+├── models/
+│   └── best.pt
+├── robot_teleop.py                # ไฟล์ออริจินัลของเพื่อน (ต้องอัปโหลดเพิ่มเติม)
+├── robot_teleop_yolo_robot.py     # UI/YOLO เดิมใน Repository
+├── run_teleop_yolo_real.py       # ตัวเริ่มระบบจริง
+├── dino_motion.py                # ROS2 /cmd_vel, /Servo, /Buzzer + isolated LiDAR
+├── tmini_plus_lidar.py           # YDLIDAR reader เดิม
+├── requirements.txt
+└── README_REAL_ROBOT_TH.md
 ```
 
-ตรวจระบบ:
+ตรวจเมื่อ Clone เสร็จ:
 
 ```bash
-uname -m
-python3 --version
-cat /etc/os-release
-df -h /
+ls -lh robot_teleop.py robot_teleop_yolo_robot.py run_teleop_yolo_real.py dino_motion.py tmini_plus_lidar.py models/best.pt
 ```
 
-บันทึก OS, Python Version, CPU Architecture และพื้นที่ว่าง
+**ข้อสำคัญ:** ณ วันที่จัดคู่มือนี้ GitHub เดิม **ยังไม่มี `robot_teleop.py`**. ถ้าขาด โปรแกรมจะล้มด้วย `ModuleNotFoundError: No module named 'robot_teleop'` แม้ `py_compile` ของไฟล์อื่นผ่านก็ตาม ห้ามข้ามไฟล์นี้
 
-- [ ] Raspberry Pi ทำงานได้
-- [ ] มีอินเทอร์เน็ต
-- [ ] รู้ OS และ Python Version
-- [ ] มีพื้นที่เพียงพอต่อการติดตั้ง
+## 3. คำสั่งสำหรับสมาชิกทีมที่ใช้ Raspberry Pi ตัวเดิม (แนะนำ)
 
-หาก PyTorch ไม่รองรับ Python/OS/Architecture ที่ใช้อยู่ ให้แก้ปัญหานี้ก่อน
+บน Windows CMD / PowerShell:
 
-## STEP 2 — ดาวน์โหลด GitHub และติดตั้ง YOLO
+```powershell
+ssh pi@192.168.1.11
+```
 
-### 2.1 ติดตั้งเครื่องมือระบบ
+แทน IP ตาม IP Raspberry Pi ปัจจุบัน (อาจเปลี่ยนเมื่อเปลี่ยน Wi-Fi)
+
+บน Pi:
 
 ```bash
-sudo apt update
-sudo apt install -y git python3-pip python3-venv cmake build-essential pkg-config swig python3-dev libusb-1.0-0-dev v4l-utils libgl1 alsa-utils mpg123
+cd ~/CatRobot-YOLO-Detector
+source .venv/bin/activate
+python --version
+python -m py_compile robot_teleop.py robot_teleop_yolo_robot.py run_teleop_yolo_real.py dino_motion.py tmini_plus_lidar.py
+python -c 'import torch, cv2, ultralytics, ydlidar; print("VISION + LIDAR IMPORT OK")'
+python -c 'from ultralytics import YOLO; print(YOLO("models/best.pt").names)'
 ```
 
-ถ้ามี Package ติดตั้งไม่ผ่าน ให้เก็บ Error และแก้ก่อน
+คาดว่าจะพบ `{0: 'green_dino'}`. ถ้า `.venv` ของ Pi เดิมทำงานอยู่แล้ว **ไม่ต้องติดตั้ง PyTorch หรือ YDLidar ใหม่**. ตรวจ `git status` ก่อน `git pull`; อย่า reset งานของเพื่อน
 
-### 2.2 Clone Repository
-
-หากยังไม่เคย Clone:
+กรณีต้อง Clone ลงเครื่องใหม่จริง ๆ:
 
 ```bash
 cd ~
 git clone https://github.com/Gamaneeya/CatRobot-YOLO-Detector.git
-cd CatRobot-YOLO-Detector
-```
-
-หากมี Repository อยู่แล้ว:
-
-```bash
 cd ~/CatRobot-YOLO-Detector
-git status
-git pull --ff-only origin main
-```
-
-หากมี Local Changes ให้สำรองก่อน Pull ห้ามใช้ `git reset --hard` โดยไม่ตรวจงานที่มีอยู่
-
-### 2.3 ตรวจไฟล์
-
-```bash
-ls -lh models/best.pt
-ls -l robot_teleop_yolo_pi_dryrun.py
-ls -l robot_teleop_yolo_robot.py
-ls -l robot_teleop_yolo_lidar.py
-ls -l tmini_plus_lidar.py
-ls -l requirements.txt
-```
-
-ทุกไฟล์ต้องอยู่ครบ
-
-### 2.4 สร้าง Python Environment
-
-```bash
+sudo apt update
+sudo apt install -y python3-venv python3-pip python3-dev git libgl1 libglib2.0-0 alsa-utils mpg123 v4l-utils
 python3 -m venv .venv
 source .venv/bin/activate
-which python
-```
-
-`which python` ต้องชี้ไปยัง `.venv/bin/python` ของโปรเจกต์
-
-### 2.5 ติดตั้ง Python Dependencies
-
-```bash
-python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-python -m pip install pyserial
-python -m pip check
 ```
 
-ตรวจ:
+**เครื่องใหม่ยังต้อง** ติดตั้งและตรวจ PyTorch/OpenCV ให้ตรงกับ OS/CPU และ YDLidar SDK (Python `ydlidar` + native shared library), ตั้งค่าอุปกรณ์ USB และเตรียม Yahboom ROS2 Docker/Motor Driver ให้ถูกก่อนใช้งานจริง ดูคู่มือ README.md เดิมในส่วนการติดตั้ง YDLidar SDK ได้ แต่ **อย่าใช้คำอธิบายเดิมที่ระบุว่าไม่ใช้ Docker กับโหมด Real ROS2 นี้**. Repository อย่างเดียว **ไม่ได้บรรจุ Docker image หรือ config ของบอร์ด** จึงไม่ใช่การติดตั้งหุ่นยนต์เครื่องใหม่แบบครบจบในคำสั่งเดียว
+
+## 4. เช็กอุปกรณ์และ Docker (ยกล้อ / ตัดกำลังมอเตอร์ก่อน)
+
+บน Pi:
 
 ```bash
-python -c "import torch, cv2, numpy, ultralytics, serial; print('YOLO DEPENDENCIES OK')"
+ls -l /dev/video0 /dev/ttyUSB0 /dev/ttyUSB1
+sudo ss -ltnp | grep ':8080' || echo 'PORT 8080 FREE'
+sudo fuser -v /dev/video0 /dev/ttyUSB1
+sudo docker ps -a
 ```
 
-- [ ] Ultralytics พร้อม
-- [ ] PyTorch พร้อม
-- [ ] OpenCV พร้อม
-- [ ] NumPy พร้อม
-- [ ] PySerial พร้อม
-- [ ] `pip check` ผ่าน
+การต่อพอร์ต **ที่เคยตรวจพบในหุ่นยนต์ทีมนี้**: `/dev/video0` กล้อง, `/dev/ttyUSB1` LiDAR, `/dev/ttyUSB0` Motor Controller ใน Docker. **ตรวจจริงทุกครั้งเมื่อสลับสาย USB**. ไม่ควรมีโปรแกรมอื่นใช้กล้อง/ LiDAR ร่วมกัน
 
-## STEP 3 — ติดตั้ง T-MINI Plus LiDAR SDK
-
-ใช้ Official YDLidar-SDK ตามตัวอย่างสำหรับ T-MINI Plus ของผู้ผลิต
-
-### 3.1 ดาวน์โหลด SDK
+ถ้า Container `affectionate_lamport` เป็น `Exited` (และยืนยันว่าตั้งค่า driver-only ไว้แล้ว):
 
 ```bash
-cd ~
-git clone https://github.com/YDLIDAR/YDLidar-SDK.git
+sudo docker start affectionate_lamport
+sudo docker ps
 ```
 
-### 3.2 Build SDK
+หาก Docker มีชื่ออื่น ให้ตรวจและใช้ชื่อนั้นกับ `--container` ใน STEP 6. **ห้ามสร้าง Motor Driver ใหม่ทับ/ซ้อนตัวเดิม**. หากเห็นหลาย Container เช่น `unruffled_noyce` ให้ตรวจว่าไม่มี Driver อีกตัวใช้พอร์ตมอเตอร์:
 
 ```bash
-cd ~/YDLidar-SDK
-mkdir -p build
-cd build
-cmake ..
-make -j2
-sudo make install
-sudo ldconfig
+sudo docker exec unruffled_noyce bash -lc 'ps -ef | grep -E "Mcnamu_driver_M1|yahboomcar_joy_launch" | grep -v grep || true'
 ```
 
-### 3.3 ติดตั้ง Python SDK ใน Environment เดียวกับ YOLO
+คำสั่งด้านบนสำหรับ Container ที่มีชื่อนี้จริงเท่านั้น; ไม่ใช่คำสั่งให้หยุด Container นั้นโดยอัตโนมัติ
+
+ตรวจ Startup ของ Container ที่เลือก:
 
 ```bash
-cd ~/CatRobot-YOLO-Detector
-source .venv/bin/activate
-cd ~/YDLidar-SDK
-python -m pip install .
+sudo docker exec affectionate_lamport bash -lc 'cat /root/run_handle.sh'
 ```
 
-ตรวจ:
+**สำหรับหุ่นยนต์ทีมนี้** startup เคยตั้งเป็น `ROS_DOMAIN_ID=62 ROS_LOCALHOST_ONLY=1 ros2 run yahboomcar_bringup Mcnamu_driver_M1` (ภายในไฟล์มี `export ROS_DOMAIN_ID=61` ก่อนหน้า แต่คำสั่ง `ROS_DOMAIN_ID=62 ... ros2 run ...` จะ Override เฉพาะโปรเซส Driver). หากบนเครื่องใหม่ไม่ตรง ให้ผู้รับผิดชอบ ROS2 ตรวจและตั้งค่า **driver-only** ก่อน ไม่แก้ Docker แบบสุ่ม
+
+## 5. ตรวจ ROS2 Topic โดยไม่สั่งให้ล้อ/Servo เคลื่อน
 
 ```bash
-python -c "import ydlidar; print('YDLIDAR SDK OK')"
+sudo docker exec affectionate_lamport bash -lc '
+source /opt/ros/humble/setup.bash
+source /root/yahboomcar_ros2_ws/yahboomcar_ws/install/setup.bash
+export ROS_DOMAIN_ID=62
+export ROS_LOCALHOST_ONLY=1
+ros2 topic info /cmd_vel -v
+ros2 topic info /Servo -v
+ros2 topic info /Buzzer -v
+ros2 interface show yahboomcar_msgs/msg/ServoControl
+'
 ```
 
-กลับไปยังโปรเจกต์และตรวจรวม:
+ผลที่คาดหวังเมื่อ **ยังไม่ได้เปิด** โปรแกรมหลัก:
 
-```bash
-cd ~/CatRobot-YOLO-Detector
-python -c "import torch, cv2, ultralytics, ydlidar; print('VISION + LIDAR READY')"
-```
+- `/cmd_vel`: `geometry_msgs/msg/Twist`; **Publisher count: 0**; `Subscription count: 1` จาก `driver_node`
+- `/Servo`: `yahboomcar_msgs/msg/ServoControl`; `Subscription count: 1`; fields `int32 s1`, `int32 s2` (ตรวจพบแล้วบนหุ่นยนต์ทีมนี้)
+- `/Buzzer`: `std_msgs/msg/Bool`; มี Driver Subscriber อย่างน้อย 1
 
-- [ ] Build SDK ผ่าน
-- [ ] Python SDK ติดตั้งผ่าน
-- [ ] `import ydlidar` ผ่าน
-- [ ] YOLO และ LiDAR อยู่ใน Python Environment เดียวกัน
+**อย่าสับสน:** หลังเปิดโปรแกรมหลัก `/cmd_vel` จะมี Publisher 1 ตัวจาก Bridge เป็นปกติ ถ้ามีมากกว่า 1 ให้หยุดการทดลองและตรวจโปรแกรมที่ซ้ำ
 
-## STEP 4 — ตรวจ Rosmaster Motor Library
+หาก `/cmd_vel` แสดง Unknown topic ทันทีหลัง Start ให้ตรวจ `sudo docker logs --tail 60 affectionate_lamport` และลองตรวจ Topic อีกครั้งหลัง Driver เริ่มพร้อม; ไม่ต้องแก้ YOLO
 
-ใน Environment ของโปรเจกต์:
+## 6. คำสั่งรันหุ่นยนต์จริง — ทดสอบยกล้อก่อนเสมอ
+
+ตัดกำลังมอเตอร์ระหว่างเตรียมระบบ จากนั้น **ยกล้อพ้นพื้นทั้งหมดบนฐานมั่นคง**, จัดพื้นที่กล้อง/ Servo ให้ไม่ติดขอบ และให้คนหนึ่งคนคุมสวิตช์ตัดกำลัง เมื่อพร้อมจึงเปิดไฟเลี้ยงมอเตอร์เพื่อทดสอบ
 
 ```bash
 cd ~/CatRobot-YOLO-Detector
 source .venv/bin/activate
-python -c "from Rosmaster_Lib import Rosmaster; print('ROSMASTER LIB OK')"
+sudo -v
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+python -u run_teleop_yolo_real.py \
+  --mode wheels-up \
+  --ros-domain-id 62 \
+  --lidar-port /dev/ttyUSB1 \
+  --confirm-wheels-up \
+  --confirm-emergency-stop
 ```
 
-ถ้าผ่าน ถือว่า Python พบ Library แล้ว แต่ยังไม่ใช่การยืนยันว่ามอเตอร์ทำงานถูกต้อง
+หากชื่อ Container ต่างจาก `affectionate_lamport` เพิ่ม `--container <ชื่อที่ตรวจแล้ว>`; ถ้าใช้ Domain อื่นต้องตั้ง Domain ของ Motor Driver และ Bridge ให้ตรงกัน (ไม่ใช่เปลี่ยนเฉพาะฝั่ง Python)
 
-หากไม่พบ ให้ตรวจ Python ระบบ:
-
-```bash
-/usr/bin/python3 -c "import Rosmaster_Lib; print(Rosmaster_Lib.__file__)"
-```
-
-หาตำแหน่ง Library ของเพื่อน:
-
-```bash
-find ~ -name 'Rosmaster_Lib.py' 2>/dev/null
-```
-
-ต้องใช้ Library ของ ROSMASTER M1 ที่ตรงกับบอร์ดจริง และทำให้ Import จาก `.venv` ได้
-
-หากจำเป็นต้องใช้ `PYTHONPATH` ให้ตั้งค่าตำแหน่ง Library ที่ตรวจพบ และจัดให้มีผลถาวรหรือผ่านสคริปต์เริ่มโปรแกรมด้วย เพราะ `export` ใน Terminal เดียวจะไม่คงอยู่หลังเปิด Terminal ใหม่
-
-**ห้ามเปลี่ยน Wi-Fi จนกว่าจะเปิด Terminal ใหม่แล้ว Import `Rosmaster_Lib` ผ่านได้อีกครั้ง**
-
-## STEP 5 — ตรวจ YOLO และกล้อง
-
-### 5.1 ตรวจโมเดล
-
-```bash
-cd ~/CatRobot-YOLO-Detector
-source .venv/bin/activate
-python -c "from ultralytics import YOLO; m=YOLO('models/best.pt'); print(m.names)"
-```
-
-ต้องเห็น:
+เปิด Browser บน Windows ที่อยู่ Robot Wi-Fi เดียวกัน:
 
 ```text
-{0: 'green_dino'}
+http://192.168.1.11:8080
 ```
 
-ทดลอง Inference:
+ถ้า Pi เปลี่ยน IP รัน `hostname -I` เพื่อตรวจ IP ใหม่ อย่าใช้ `http://localhost:8080` บน Windows เพราะจะชี้ไปยัง Windows ไม่ใช่ Pi
 
-```bash
-python -c "import numpy as np; from ultralytics import YOLO; m=YOLO('models/best.pt'); r=m.predict(np.zeros((480,640,3),dtype=np.uint8),imgsz=640,verbose=False); print('INFERENCE OK:',len(r))"
-```
-
-ต้องเห็น `INFERENCE OK: 1`
-
-### 5.2 ตรวจกล้อง
-
-```bash
-v4l2-ctl --list-devices
-ls -l /dev/video*
-```
-
-```bash
-python -c "import cv2; c=cv2.VideoCapture(0); ok,f=c.read(); print('Opened:',c.isOpened(),'Frame:',ok,'Shape:',None if f is None else f.shape); c.release()"
-```
-
-ต้องได้ `Opened: True` และ `Frame: True`
-
-หากเป็นกล้อง CSI ที่ OpenCV เปิดด้วย Index ไม่ได้ อาจต้องปรับ Camera Pipeline ให้ตรงกับกล้องจริงก่อน
-
-### 5.3 ทดสอบ Dry Run ขณะยังออนไลน์
-
-ตรวจว่าโปรแกรมเดิมไม่ได้ใช้กล้องหรือ Port 8080 อยู่:
-
-```bash
-sudo ss -ltnp | grep ':8080'
-```
-
-เปิดโปรแกรม:
-
-```bash
-python robot_teleop_yolo_pi_dryrun.py
-```
-
-เปิด Browser ผ่าน IP ของ Pi ในเครือข่ายปัจจุบัน:
+ตรวจ Log เริ่มทำงาน ตัวอย่าง **ไม่ใช่การรับรองล้อเคลื่อน**:
 
 ```text
-http://PI_IP:8080
+[VISION] YOLO warm-up OK
+[CAMERA] Existing YOLO camera loop will run in MAIN thread
+[MOTOR] READY /cmd_vel subscribers=1
+[SERVO] SERVO_READY fields=s1,s2
+[WEB] Original teleop UI + real YOLO: http://192.168.1.11:8080
+[TMINI] Scanning: /dev/ttyUSB1
 ```
 
-หากใช้หน้าจอบน Pi เอง สามารถเปิด `http://localhost:8080` ได้
+## 7. ปุ่มควบคุมเดิม (ต้องให้ Browser รับ Focus)
 
-ตรวจ:
+| บนเว็บ/คีย์บอร์ด Windows | ความหมาย |
+| --- | --- |
+| คลิก **MANUAL** | เปิดรับคำสั่งเดินแบบ Manual |
+| กดค้าง **W / A / S / D** | เดินหน้า / เลี้ยวซ้าย / ถอยหลัง / เลี้ยวขวา |
+| ปล่อย WASD | ต้องหยุดเมื่อไม่กด; ตรวจบนล้อจริง |
+| **Space** หรือปุ่ม **STOP** | กลับ STOPPED, สั่งความเร็ว 0 |
+| **ลูกศร ← →** | Camera Servo S1 แพนซ้าย/ขวา |
+| **ลูกศร ↑ ↓** | Camera Servo S2 เงย/ก้ม |
+| **C** | กลับมุมอ้างอิง Servo S1=90°, S2=35° (ค่าอ้างอิงในโค้ดนี้) |
+| **H ค้าง** / Horn บนเว็บ | Buzzer ของบอร์ด (หยุดเมื่อปล่อย) |
+| **1–5** | Buzzer 5 Patterns เดิม |
+| **M, 6–0** | เสียงแมวจาก Raspberry Pi USB Speaker |
+| ปุ่ม **AUTO FOLLOW** | ให้ YOLO ตรวจ Dino แล้วส่งคำสั่งเลี้ยว/เดินหน้า ตาม LiDAR |
 
-- [ ] หน้าเว็บเปิดได้
-- [ ] ภาพกล้องแสดง
-- [ ] เห็น Bounding Box รอบ Green Dino
-- [ ] Confidence แสดงผล
-- [ ] ขยับ Dino แล้วทิศ LEFT / RIGHT เปลี่ยน
-- [ ] Dino หายแล้วแสดง STOP
-- [ ] ล้อจริงไม่เคลื่อนที่
+เสียงแมวกับ Buzzer เป็นคนละอุปกรณ์:
+- **Meow** ผ่าน ALSA / USB Speaker โดย `robot_teleop.py` ออริจินัล; เครื่องทีมนี้พบ `plughw:2,0`, เครื่องอื่นอาจไม่ใช่หมายเลขเดียวกัน ตรวจ `aplay -l`
+- **Buzzer** ผ่าน `/Buzzer` ใน Docker; `/Buzzer` ต้องมี Subscriber
 
-Dry Run เป็นการจำลองคำสั่งมอเตอร์เท่านั้น
+Servo เริ่มจากมุม *สมมุติ* ที่ S1 90°, S2 35° (ตาม Docker Startup ที่เคยบันทึกไว้), ไม่ได้อ่านมุมปัจจุบันจริงจากเซนเซอร์ ควบคุมไว้ช่วง S1 **65–115°**, S2 **25–65°** ในการเริ่มทดลอง กล้องต้องไม่ชนโครงเมื่อกดลูกศรหรือ C
 
-กด `Ctrl+C` เพื่อปิดโปรแกรมก่อนทำขั้นต่อไป
+### ลำดับการทดสอบหุ่นยนต์จริง (ยกล้อ)
 
-## STEP 6 — ตรวจ T-MINI Plus และ Serial Port
+1. เปิดหน้าเว็บเห็นภาพสดและ Bounding Box รอบ Dino; ทดลองขยับตุ๊กตา
+2. ตรวจ LiDAR แจ้งระยะถูกด้านด้วยการวางวัตถุจริงหน้า/ซ้าย/ขวาที่ระดับเลเซอร์
+3. ทดสอบเสียงแมว (M, 6–0) และ Buzzer (H, 1–5) บนตัวหุ่นยนต์จริง
+4. ทดสอบ Servo ทีละแกนด้วยลูกศรสั้น ๆ, กด C และดูการเคลื่อนจริง
+5. MANUAL: กด W/A/S/D ทีละปุ่ม, ปล่อยแล้วล้อต้องหยุด, Space หยุดจริง
+6. AUTO: เห็น Dino ซ้าย → หุ่นยนต์เลี้ยวซ้าย; กลาง → ขยับหน้า; ขวา → เลี้ยวขวา; Dino หาย → หยุด (ตรวจที่ล้อจริง ไม่ใช่แค่ข้อความ)
+7. ตรวจ STOP เมื่อตัดการเชื่อมต่อ Browser/SSH, LiDAR ไม่พร้อม และ Motor Bridge ขาดการเชื่อมต่อ; หากล้อไม่หยุดจริงให้ตัดกำลังทันที
 
-ตรวจ USB:
+**ห้ามทดสอบบนพื้น** จนกว่าล้อและระบบหยุดฉุกเฉินทุกกรณีจะผ่าน, LiDAR คาลิเบรตด้านหน้า/ระยะหยุดตามขนาดหุ่นยนต์จริงแล้ว และมีผู้ควบคุมกำลังมอเตอร์อยู่ตลอด
+
+## 8. คำสั่งหยุดระบบ
+
+ขณะอยู่หน้าเว็บให้กด **STOP** และดูว่าล้อหยุดจริงก่อน จากนั้นตัดกำลังมอเตอร์ แล้วกด `Ctrl+C` ใน Terminal ที่เปิดโปรแกรม
 
 ```bash
-lsusb
-ls -l /dev/serial/by-id/
-ls -l /dev/ttyUSB* /dev/ttyACM*
-sudo dmesg | tail -n 30
+sudo ss -ltnp | grep ':8080' || echo 'PORT 8080 FREE'
 ```
 
-ระบุให้ได้ว่า Port ไหนเป็น LiDAR และ Port ไหนเป็น Motor Controller
+**หาก SSH หลุด:** เชื่อมกลับแล้วตรวจ `sudo ss -ltnp | grep ':8080'` และตรวจว่าล้อหยุดจริง; อย่าถือว่าข้อความ `client_loop: send disconnect: Connection reset` ยืนยันโปรแกรมหยุดเองแล้ว
 
-ตัวอย่าง Port ของ LiDAR:
+## 9. แก้ปัญหาเบื้องต้น
 
-```text
-/dev/ttyUSB0
-```
+| อาการ | ตรวจก่อน |
+| --- | --- |
+| `No module named robot_teleop` | ยังไม่ได้ใส่ `robot_teleop.py` ออริจินัลไว้ข้างไฟล์เริ่มระบบ |
+| `Port 8080 is busy` | มีโปรแกรม CatRobot เก่าเปิด Web Server อยู่, ห้ามเปิดสองตัว |
+| `/cmd_vel Unknown topic` | Docker/Driver ยังไม่พร้อม หรือ Domain 62 ไม่ตรง |
+| `ERROR OTHER_CMD_VEL_PUBLISHERS` | มีโปรแกรมอีกตัวสั่งล้อใน Domain เดียวกัน; ห้ามข้ามการตรวจนี้ |
+| `LIDAR NOT READY`, `INSUFFICIENT`, `STALE` | เช็ก `/dev/ttyUSB1`, สาย, SDK, ทิศติดตั้ง และสิ่งกีดขวาง ห้าม bypass |
+| เสียงแมวไม่ออก | `aplay -l`; สาย USB Speaker; mixer; device ที่เลือก |
+| Buzzer ไม่ออก | ตรวจ `/Buzzer` subscriber และเสียงจริงบนบอร์ด |
+| Servo ไม่หมุน | ตรวจ `/Servo` subscriber, `int32 s1/s2`, Servo power และมุมทดสอบ |
+| ภาพค้าง | ตรวจโปรแกรมกล้องตัวอื่น, `/dev/video0`, PyTorch threads; ห้ามเปิด `dino_live.py` ซ้อน |
+| Log `v=...` แต่ล้อไม่หมุน | ตรวจ Motor Driver/ไฟเลี้ยง/ล้อจริง ไม่ถือว่า Log แปลว่าล้อเคลื่อน |
 
-**เป็นเพียงตัวอย่าง ต้องใช้ Port ที่ตรวจพบจริง**
+## 10. สถานะ ณ วันที่ส่งต่อ (จาก Log ที่ทีมมี)
 
-ตรวจสิทธิ์ของ Port:
+**ยืนยันจาก Log:** YOLO warm-up, LiDAR scanning, ROS2 `/cmd_vel` subscriber, `/Servo` subscriber และคำสั่ง Servo, AUTO/MANUAL คำสั่งความเร็ว, audio playback บน USB Speaker; มีการสั่ง STOPED/STOP และ Motor velocity = 0
 
-```bash
-groups
-ls -l /dev/ttyUSB0
-```
+**ยังต้องยืนยันจากฮาร์ดแวร์ก่อนเรียกว่า Fully Validated:** ล้อหมุนและหยุดจริงทุกโหมด, Servo ขยับตามแกนถูกต้องและไม่ชนโครง, Buzzer/Meow ดังครบทุกปุ่ม, fail-safe เมื่อ Bridge/SSH หลุด และการวิ่งบนพื้นโดยไม่มีการชน
 
-หากอุปกรณ์ใช้กลุ่ม `dialout` และผู้ใช้ยังไม่มีสิทธิ์:
-
-```bash
-sudo usermod -aG dialout "$(whoami)"
-```
-
-Logout/Login หรือ Reboot แล้วตรวจสิทธิ์ใหม่
-
-### 6.1 ทดลองอ่าน LiDAR อย่างเดียว
-
-```bash
-cd ~/CatRobot-YOLO-Detector
-source .venv/bin/activate
-```
-
-แทน `/dev/ttyUSB0` ด้วย Port จริง:
-
-```bash
-python robot_teleop_yolo_lidar.py --mode scan-only --port /dev/ttyUSB0 --front-angle 0
-```
-
-โหมดนี้ไม่เปิด Motor Controller
-
-ตรวจค่าที่รายงาน:
-
-```text
-[LiDAR] REASON | age: ... | points: ... | front: ... | left: ... | right: ...
-```
-
-ทดลองนำวัตถุที่ LiDAR ตรวจพบได้ไปวางด้านหน้า ซ้าย และขวาที่ระดับเลเซอร์
-
-- [ ] ได้รับ Scan จริง
-- [ ] จำนวน Valid Points ไม่เป็นศูนย์ตลอดเวลา
-- [ ] ระยะเปลี่ยนเมื่อย้ายวัตถุ
-- [ ] วัตถุใกล้แล้วรายงาน OBSTACLE
-- [ ] ข้อมูลไม่เพียงพอแล้วไม่รายงาน SCAN CLEAR
-- [ ] ข้อมูลหมดอายุแล้วรายงาน STALE
-
-กด `Ctrl+C` เพื่อหยุด
-
-### 6.2 Calibrate ทิศหน้า
-
-มุม `0°` ของ LiDAR อาจไม่ตรงกับด้านหน้าหุ่นยนต์
-
-ให้ทดลองวางวัตถุด้านหน้าของหุ่นยนต์และดูว่าระยะใน Sector หน้าเปลี่ยนถูกต้องหรือไม่ จากนั้นตรวจซ้ายและขวาด้วย
-
-หากไม่ตรง ให้แก้ `--front-angle` จากการทดลองจริง
-
-ตัวอย่าง:
-
-```bash
-python robot_teleop_yolo_lidar.py --mode scan-only --port /dev/ttyUSB0 --front-angle 90
-```
-
-ใช้ 90° เฉพาะเมื่อสอบเทียบแล้วว่าถูกต้อง
-
-บันทึก:
-
-| Setting | Actual value |
-|---|---|
-| LiDAR Port | __________ |
-| Front Angle | __________ |
-| Front Scan | PASS / FAIL |
-| Left Scan | PASS / FAIL |
-| Right Scan | PASS / FAIL |
-
-**หาก Calibrate ไม่ผ่าน ห้ามเริ่ม Auto Motor Test**
-
-## STEP 7 — ติดตั้งและตรวจระบบเสียง
-
-ทำให้เสร็จขณะยังออนไลน์:
-
-```bash
-command -v aplay
-command -v mpg123
-aplay -l
-```
-
-หากขาดโปรแกรมเสียง ให้ติดตั้งก่อนเปลี่ยน Wi-Fi:
-
-```bash
-sudo apt install -y alsa-utils mpg123
-```
-
-ถ้าเสียงต้องใช้อุปกรณ์ USB ให้ตรวจว่า Raspberry Pi มองเห็นอุปกรณ์นั้นแล้ว
-
-ตรวจตำแหน่งลำโพงและการตั้งค่า Output Device ก่อนทดลองจริง
-
-- [ ] `aplay` มีอยู่
-- [ ] `mpg123` มีอยู่
-- [ ] Pi พบอุปกรณ์เสียง
-- [ ] เลือก Output Device ได้
-
-การกด Meow และ Buzzer ผ่านหน้าเว็บจะทดสอบอีกครั้งใน PHASE B
-
-## STEP 8 — Offline Backup + FINAL ONLINE CHECK
-
-**นี่คือจุดสุดท้ายก่อนเปลี่ยนไป Robot Wi-Fi**
-
-### 8.1 สำรอง Python Packages
-
-```bash
-cd ~/CatRobot-YOLO-Detector
-source .venv/bin/activate
-mkdir -p offline/wheels
-```
-
-บันทึก Packages ทั้งหมด:
-
-```bash
-python -m pip freeze > offline/requirements-pi-full.txt
-```
-
-ทำ Lock File สำหรับ Dependencies ที่ติดตั้งผ่าน pip โดยแยก YDLidar ที่ติดตั้งจาก Source:
-
-```bash
-python -m pip freeze | grep -vi '^ydlidar' > offline/requirements-pi.lock.txt
-```
-
-ดาวน์โหลด Wheels:
-
-```bash
-python -m pip download --only-binary=:all: -d offline/wheels -r offline/requirements-pi.lock.txt
-```
-
-สร้าง Wheel ของ YDLidar SDK:
-
-```bash
-python -m pip wheel ~/YDLidar-SDK --no-deps -w offline/wheels
-```
-
-หากคำสั่งใดไม่ผ่าน ห้ามถือว่าชุด Offline Backup สมบูรณ์ ต้องตรวจ Package ที่ขาดก่อน
-
-ตรวจไฟล์:
-
-```bash
-ls -lh offline/wheels
-```
-
-เก็บ Source ของ `~/YDLidar-SDK` และ Library ของ ROSMASTER ไว้ด้วย เพราะ Wheels ไม่ได้รวม System Libraries และไฟล์ของผู้ผลิตทุกตัว
-
-### 8.2 ทดลอง Offline Installation
-
-หากต้องการให้สามารถติดตั้ง Python Packages ใหม่โดยไม่ใช้อินเทอร์เน็ตได้ ให้ทดลองใน Environment แยก:
-
-```bash
-cd ~/CatRobot-YOLO-Detector
-python3 -m venv .venv_offline_test
-```
-
-```bash
-.venv_offline_test/bin/python -m pip install --no-index --find-links=offline/wheels -r offline/requirements-pi.lock.txt
-```
-
-```bash
-.venv_offline_test/bin/python -m pip install --no-index --find-links=offline/wheels ydlidar
-```
-
-```bash
-.venv_offline_test/bin/python -m pip check
-```
-
-```bash
-.venv_offline_test/bin/python -c "import torch, cv2, ultralytics, ydlidar; print('OFFLINE PYTHON IMPORT OK')"
-```
-
-ถ้า Package ใดติดตั้งไม่ได้ ให้แก้ชุดสำรองขณะยังมีอินเทอร์เน็ต
-
-**หมายเหตุ:** การทดลองนี้พิสูจน์เฉพาะ Python Packages บนเครื่องที่ใช้ทดสอบ ไม่ได้พิสูจน์ว่าการติดตั้ง System Packages หรือ ROSMASTER Library ใหม่จะทำได้โดยไม่มีอินเทอร์เน็ตด้วย ต้องสำรองและทดสอบส่วนเหล่านั้นแยกหากต้องการกู้ระบบทั้งหมด
-
-### 8.3 FINAL ONLINE CHECK — ต้องผ่านก่อนเปลี่ยน Wi-Fi
-
-เปิด Terminal ใหม่เพื่อทดสอบว่าระบบยังทำงานได้หลังเริ่ม Session ใหม่:
-
-```bash
-cd ~/CatRobot-YOLO-Detector
-source .venv/bin/activate
-```
-
-ตรวจ Dependencies:
-
-```bash
-python -m pip check
-```
-
-```bash
-python -c "import torch, cv2, numpy, ultralytics, serial, ydlidar; print('VISION + LIDAR IMPORT OK')"
-```
-
-ตรวจ Motor Library:
-
-```bash
-python -c "from Rosmaster_Lib import Rosmaster; print('ROSMASTER LIB OK')"
-```
-
-ตรวจโมเดล:
-
-```bash
-python -c "from ultralytics import YOLO; m=YOLO('models/best.pt'); print(m.names)"
-```
-
-ตรวจระบบเสียง:
-
-```bash
-command -v aplay
-command -v mpg123
-```
-
-### FINAL CHECKLIST — ก่อนออกจากเครือข่ายที่มีอินเทอร์เน็ต
-
-- [ ] GitHub Code ดาวน์โหลดครบ
-- [ ] `models/best.pt` อยู่ในเครื่อง
-- [ ] Python `.venv` ใช้ได้
-- [ ] Ultralytics / Torch / OpenCV / NumPy / PySerial พร้อม
-- [ ] YDLidar SDK ติดตั้งสำเร็จ
-- [ ] T-MINI Plus อ่านข้อมูล Scan จริงได้
-- [ ] LiDAR Port ถูกต้อง
-- [ ] Front Angle Calibrate แล้ว
-- [ ] `Rosmaster_Lib` Import ได้จาก Terminal ใหม่
-- [ ] กล้องเปิดได้
-- [ ] YOLO ตรวจ Dino ได้
-- [ ] Dry Run ทำงานและไม่ขยับล้อจริง
-- [ ] โปรแกรมเสียงติดตั้งครบ
-- [ ] Source Code และ SDK เก็บในเครื่องแล้ว
-- [ ] Offline Backup ผ่านตามระดับการกู้ระบบที่ต้องการ
-- [ ] ไม่มี Error ค้างที่จำเป็นต้องใช้อินเทอร์เน็ตแก้
-
-**ทุกข้อที่จำเป็นสำหรับการทดลองต้องผ่านก่อน จึงเปลี่ยน Wi-Fi**
+โปรแกรมมีความเร็วจริงที่ส่งผ่าน Bridge จำกัดประมาณ ±0.055 m/s และ ±0.19 rad/s ในโหมดทดลอง (ตามโค้ด) ไม่ใช่ความเร็วสูงสุดของหุ่นยนต์; การหยุดเมื่อเข้าใกล้ Dino ใช้ขนาด Bounding Box เป็นเพียงตัวช่วย ไม่ใช่การวัดระยะจริง และ LiDAR ยังต้องคาลิเบรตทิศและระยะหยุด
 
 ---
 
-# SWITCH NETWORK — เปลี่ยนไป Robot Wi-Fi ครั้งเดียว
+## 11. หมายเหตุสำหรับผู้ดูแล GitHub
 
-หลัง PHASE A ผ่านแล้ว ให้เชื่อม Raspberry Pi และคอมพิวเตอร์ที่จะเปิด Web Control เข้ากับเครือข่ายภายในของหุ่นยนต์ตามการตั้งค่าของทีม
+`README.md` เดิมใน GitHub บอกว่า "ไม่ใช้ Docker" ซึ่ง **ไม่ถูกต้องสำหรับโหมด Real ROS2 นี้**. แนะนำให้เพิ่มข้อความที่ส่วนต้น README หลักว่า:
 
-หากการเปลี่ยน Wi-Fi ทำให้ SSH หลุด ให้เชื่อมใหม่ด้วย IP ของ Pi บนเครือข่ายใหม่
+> **Real hardware mode:** Use [`README_REAL_ROBOT_TH.md`](README_REAL_ROBOT_TH.md). This mode uses an existing Yahboom ROS2 Docker driver-only container (Domain 62), rather than the direct `Rosmaster_Lib` motor backend. Do not run both drivers at the same time.
 
-ตรวจ IP:
-
-```bash
-hostname -I
-```
-
-บันทึก:
-
-```text
-ROBOT_IP = ___________________
-```
-
-จากนี้ใช้ Source Code และ Libraries ที่ติดตั้งอยู่ใน Raspberry Pi ได้โดยไม่ต้องมีอินเทอร์เน็ต
-
-**PHASE B ไม่ต้องใช้ `apt install`, `pip install` หรือ `git clone` อีกแล้ว**
-
----
-
-# PHASE B — ROBOT TEST (NO INTERNET REQUIRED)
-
-ทำบน Robot Wi-Fi หลังผ่าน PHASE A
-
-## STEP 9 — ยืนยันระบบหลังเปลี่ยนเครือข่าย
-
-```bash
-cd ~/CatRobot-YOLO-Detector
-source .venv/bin/activate
-```
-
-ตรวจ:
-
-```bash
-python -c "import torch, cv2, ultralytics, ydlidar; print('READY')"
-```
-
-```bash
-python -c "from Rosmaster_Lib import Rosmaster; print('MOTOR LIB READY')"
-```
-
-```bash
-hostname -I
-```
-
-ตรวจ Port 8080:
-
-```bash
-sudo ss -ltnp | grep ':8080'
-```
-
-หากมีโปรแกรมเดิมใช้งานอยู่ ให้ระบุโปรแกรมและหยุดอย่างถูกวิธีก่อนเปิดโปรแกรมใหม่
-
-## STEP 10 — Dry Run บน Robot Wi-Fi
-
-```bash
-python robot_teleop_yolo_pi_dryrun.py
-```
-
-เปิด Browser จากคอมที่อยู่เครือข่ายเดียวกัน:
-
-```text
-http://ROBOT_IP:8080
-```
-
-ตรวจ:
-
-- [ ] เปิดเว็บได้
-- [ ] เห็นภาพกล้อง
-- [ ] YOLO ตรวจ Green Dino ได้
-- [ ] Bounding Box ตรงกับ Dino
-- [ ] LEFT / RIGHT / FORWARD / STOP แสดงผล
-- [ ] ล้อจริงไม่เคลื่อนที่
-
-กด `Ctrl+C` เมื่อจบ
-
-หาก Dry Run บน Robot Wi-Fi ไม่ผ่าน ให้แก้การเชื่อมต่อกล้องหรือเครือข่ายก่อน ไม่ข้ามไปทดลองมอเตอร์
-
-## STEP 11 — MANUAL MOTOR TEST (WHEELS UP)
-
-**ยกล้อหุ่นยนต์พ้นพื้นอย่างมั่นคง มีคนควบคุมอยู่กับหุ่นยนต์ และเตรียมวิธีตัดกำลังมอเตอร์ทันที**
-
-```bash
-cd ~/CatRobot-YOLO-Detector
-source .venv/bin/activate
-```
-
-```bash
-python robot_teleop_yolo_lidar.py --mode manual-wheels-up --confirm-wheels-up
-```
-
-เปิดเว็บ:
-
-```text
-http://ROBOT_IP:8080
-```
-
-ทดสอบ:
-
-1. เริ่มโปรแกรมแล้วล้อต้องหยุด
-2. กด MANUAL
-3. กด W สั้น ๆ → ตรวจทิศทางเดินหน้า
-4. กด A สั้น ๆ → ตรวจทิศทางเลี้ยวซ้าย
-5. กด D สั้น ๆ → ตรวจทิศทางเลี้ยวขวา
-6. ปล่อยปุ่ม → ตรวจว่าหยุด
-7. กด SPACE / STOP → ตรวจว่าหยุด
-8. ทดสอบ Web Heartbeat ขาด → ตรวจว่าหยุด
-9. ทดสอบวิธีหยุดฉุกเฉินที่ไม่พึ่งหน้าเว็บ
-
-**โหมดนี้ไม่ได้ใช้ LiDAR เป็นตัวควบคุมความปลอดภัย และห้ามทดลองโดยวางล้อบนพื้น**
-
-หากทิศผิดหรือไม่หยุด ให้หยุดทดลองและแก้ปัญหาก่อน
-
-### STEP 11.1 — หลัง MANUAL Test ผ่านแล้ว ต้องทำอะไรต่อ?
-
-เมื่อทดสอบมอเตอร์ใน STEP 11 ผ่านทั้งหมดแล้ว ให้เปลี่ยนจากโปรแกรมทดสอบมอเตอร์แยกไปเป็นโปรแกรมรวม YOLO + LiDAR + Motor
-
-**ทำตามทีละข้อ**
-
-1. กลับไปที่หน้าเว็บ `http://ROBOT_IP:8080`
-2. กดปุ่ม **STOP**
-3. ตรวจให้แน่ใจว่าล้อหยุดหมุนสนิท
-4. กลับไปที่ Terminal ของ Raspberry Pi ที่กำลังรัน `manual-wheels-up`
-5. กด `Ctrl+C` ใน Terminal เพื่อปิดโปรแกรมทดสอบ
-6. ตรวจว่า Terminal กลับมารับคำสั่งได้ และโปรแกรมเดิมไม่ใช้ Port 8080 แล้ว
-7. ทำ STEP 12 ต่อ
-
-**ทำไมต้องปิดโปรแกรมนี้?**
-
-เพราะ `manual-wheels-up` เป็นโปรแกรมทดสอบมอเตอร์แยกที่ยังไม่เปิด AUTO FOLLOW
-
-เมื่อเปิดโปรแกรมรวมใน STEP 12 แล้ว จะสามารถกด MANUAL ↔ AUTO FOLLOW ↔ STOP บนหน้าเว็บได้โดยไม่ต้องปิด Python อีก
-
----
-
-## STEP 12 — เปิดโปรแกรมรวม MANUAL + AUTO FOLLOW + LiDAR (WHEELS UP)
-
-**ขั้นนี้ยังต้องยกล้อหุ่นยนต์พ้นพื้นอย่างมั่นคง และมีคนพร้อมตัดกำลังมอเตอร์ทันที**
-
-ต้องผ่าน MANUAL Test, LiDAR Calibration และการทดสอบระบบหยุดเบื้องต้นก่อน
-
-### STEP 12.1 — เปิดโปรแกรมรวมครั้งเดียว
-
-ใน Terminal ของ Raspberry Pi พิมพ์:
-
-```bash
-cd ~/CatRobot-YOLO-Detector
-source .venv/bin/activate
-```
-
-จากนั้นรัน:
-
-```bash
-python robot_teleop_yolo_lidar.py --mode auto-supervised --port /dev/ttyUSB0 --front-angle 0 --confirm-orientation --confirm-supervised
-```
-
-**สำคัญ:** เปลี่ยน `/dev/ttyUSB0` และ `--front-angle 0` เป็นค่าที่ตรวจสอบและ Calibrate ได้จริงใน PHASE A
-
-โปรแกรมนี้จะเปิดระบบ YOLO, LiDAR, Motor และ Web Interface พร้อมกัน
-
-ไม่ต้องแก้ `ENABLE_REAL_MOTOR` หรือ `ENABLE_AUTO_FOLLOW` ในไฟล์ Python ด้วยมือ
-
-หากมี Error ให้แก้ก่อนทำขั้นตอนถัดไป
-
-### STEP 12.2 — เปิดหน้าเว็บควบคุม
-
-1. เชื่อมคอมพิวเตอร์กับ Robot Wi-Fi เดียวกับ Raspberry Pi
-2. เปิด Chrome หรือ Browser
-3. เข้า `http://ROBOT_IP:8080`
-4. ตรวจว่าเห็นภาพกล้อง
-5. ตรวจว่าเห็นปุ่ม MANUAL, AUTO FOLLOW และ STOP
-6. ตรวจว่าตอนเริ่มแสดง `Mode: STOPPED`
-7. ล้อหุ่นยนต์ต้องยังไม่หมุน
-
-สามารถเปิด `http://ROBOT_IP:8080/status` เพื่อดูรายละเอียดสถานะระบบได้
-
-### STEP 12.3 — ทดลองสลับ MANUAL / AUTO / STOP บนหน้าเว็บ
-
-**ทดสอบ MANUAL**
-
-1. กด **MANUAL**
-2. กด W สั้น ๆ → ตรวจว่าล้อหมุนไปทิศเดินหน้า
-3. กด A สั้น ๆ → ตรวจว่าล้อหมุนไปทิศเลี้ยวซ้าย
-4. กด D สั้น ๆ → ตรวจว่าล้อหมุนไปทิศเลี้ยวขวา
-5. ปล่อยปุ่มทั้งหมด → ล้อต้องหยุด
-
-การสั่งล้อในโหมดนี้ยังต้องผ่าน LiDAR Safety Check
-
-**ทดสอบ AUTO FOLLOW**
-
-1. กด **AUTO FOLLOW** โดยไม่ต้องปิด Python
-2. นำ Green Dino ไปไว้หน้ากล้อง
-3. ตรวจว่า YOLO แสดง Bounding Box รอบ Dino
-4. ขยับ Dino ไปด้านซ้าย → ตรวจคำสั่ง TURN LEFT
-5. ขยับ Dino ไปด้านขวา → ตรวจคำสั่ง TURN RIGHT
-6. วาง Dino ตรงกลาง → ตรวจคำสั่ง FORWARD เมื่อผ่านเงื่อนไข
-7. นำ Dino ออกจากภาพ → ล้อต้องหยุด
-8. กด STOP → ล้อต้องหยุดและเข้า STOPPED
-
-**ทดลองกลับจาก AUTO เป็น MANUAL**
-
-1. กด **MANUAL** อีกครั้งบนหน้าเว็บ
-2. ตรวจว่า Mode เปลี่ยนเป็น MANUAL
-3. ทดลอง WASD สั้น ๆ อีกครั้ง
-4. กด STOP เพื่อจบการทดสอบ
-
-**จำง่าย ๆ**
-
-- MANUAL → AUTO FOLLOW: กดปุ่ม AUTO FOLLOW บนเว็บ
-- AUTO FOLLOW → MANUAL: กดปุ่ม MANUAL บนเว็บ
-- MANUAL / AUTO → STOP: กด STOP
-- ไม่ต้อง Restart Python เพื่อสลับโหมด
-- ไม่ต้องเปลี่ยน Wi-Fi
-- ไม่ต้องแก้ตัวแปรในโค้ด
-
-### STEP 12.4 — ทดสอบ LiDAR Safety
-
-ในโหมดโปรแกรมรวม ทั้ง MANUAL และ AUTO ต้องหยุดการเคลื่อนที่หาก LiDAR ไม่ผ่านเงื่อนไข
-
-ทดสอบโดยยังยกล้อพ้นพื้น:
-
-- [ ] ไม่มีข้อมูล LiDAR → ล้อไม่หมุน
-- [ ] ข้อมูล LiDAR เก่า → ล้อหยุด
-- [ ] สิ่งกีดขวางด้านหน้า → ล้อหยุด
-- [ ] สิ่งกีดขวางด้านซ้าย → ล้อหยุด
-- [ ] สิ่งกีดขวางด้านขวา → ล้อหยุด
-- [ ] Dino หายจากกล้องใน AUTO → ล้อหยุด
-- [ ] ขาด Web Heartbeat → ล้อหยุด
-- [ ] กด STOP → ล้อหยุด
-- [ ] สลับ MANUAL ↔ AUTO ได้โดยไม่มีคำสั่งเก่าค้าง
-
-### STEP 12.5 — หากกด AUTO แล้ว Robot ไม่ขยับ
-
-เปิด:
-
-`http://ROBOT_IP:8080/status`
-
-ตรวจค่าต่อไปนี้:
-
-| Status | สิ่งที่ต้องตรวจ |
-|---|---|
-| `mode` | เป็น AUTO หรือไม่ |
-| `motor_enabled` | เป็น true หรือไม่ |
-| `auto_enabled` | เป็น true หรือไม่ |
-| `lidar_ready` | เป็น true หรือไม่ |
-| `detection` | YOLO พบ Dino หรือไม่ |
-| `motor_action` | โปรแกรมสั่งอะไร หรือหยุดเพราะอะไร |
-
-หากแสดง `AUTO BLOCKED`, `LIDAR NOT READY` หรือไม่พบ Dino ต้องแก้สาเหตุให้ถูกต้องก่อน ไม่ปิด Safety Check เพื่อบังคับให้ล้อหมุน
-
-**หากข้อใดใน STEP 12 ไม่ผ่าน ห้ามทดลอง AUTO บนพื้นจริง**
-
-การทดลองบนพื้นต้องผ่านเงื่อนไขใน STEP 14 ก่อน โดยเฉพาะระบบหยุดฉุกเฉินที่ไม่พึ่งซอฟต์แวร์ ระยะเบรกจริง และสิ่งกีดขวางที่ LiDAR 2D อาจตรวจไม่พบ
-
-## STEP 13 — ทดสอบ Meow และ Buzzer
-
-ใช้หน้าเว็บของ Robot Program
-
-Controls:
-
-| Control | Function |
-|---|---|
-| MANUAL | Manual Drive Mode |
-| AUTO FOLLOW | YOLO + LiDAR Follow Test |
-| STOP / SPACE | Software Stop |
-| W / A / S / D | Manual movement |
-| M | Meow |
-| 6–0 | Other Meow Variants |
-| 1–5 | Buzzer Patterns |
-
-Camera Servo ยังถูกปิดไว้ใน Real Robot Controller เวอร์ชันนี้
-
-ตรวจ:
-
-- [ ] Meow ออกลำโพง
-- [ ] Buzzer ทำงาน
-- [ ] เสียงไม่ทำให้ Loop ควบคุมมอเตอร์ค้าง
-- [ ] STOP ยังทำงานขณะเล่นเสียง
-
-หน้าเว็บไม่มีระบบ Login จึงใช้เฉพาะเครือข่ายภายในที่เชื่อถือได้ ไม่เปิด Port 8080 สู่ Internet
-
-## STEP 14 — ก่อนทดลองเดินตาม Dino บนพื้นจริง
-
-**ยังไม่ให้ทำขั้นนี้เพียงเพราะ STEP 12 ผ่าน**
-
-ต้องยืนยันเพิ่มเติม:
-
-- [ ] มีระบบหยุดหรือตัดกำลังมอเตอร์ที่ไม่พึ่ง Python/Web UI
-- [ ] ทดสอบกรณีโปรแกรมหรือการสื่อสารมอเตอร์ค้างแล้ว
-- [ ] ตรวจระยะเบรกจริงของหุ่นยนต์แล้ว
-- [ ] ตั้งระยะหยุดจากผลทดสอบ ไม่ใช่เดาตัวเลข
-- [ ] ตรวจทิศ LiDAR และจุดบอดของหุ่นยนต์แล้ว
-- [ ] ตรวจการชนขณะหมุนแล้ว
-- [ ] มีวิธีจัดการวัตถุที่ต่ำกว่าระนาบเลเซอร์
-- [ ] ไม่มีบันได ขอบตก หรือสิ่งกีดขวางอันตราย
-- [ ] มีคนพร้อมหยุดหุ่นยนต์ทุกช่วงเวลา
-
-**T-MINI Plus เป็น 2D LiDAR** ซึ่งอาจไม่เห็น Green Dino ถ้าตุ๊กตาเตี้ยกว่าระนาบเลเซอร์ และไม่สามารถใช้ป้องกันการตกจากขอบพื้นได้
-
-**ขนาด Bounding Box ของ YOLO ไม่ใช่ระยะทางจริง** จึงไม่เพียงพอสำหรับรับประกันว่าหุ่นยนต์จะหยุดก่อนชน Dino
-
-เมื่อแก้ความเสี่ยงเหล่านี้และผ่านการทดสอบระบบหยุดครบแล้ว จึงพิจารณาทดลองบนพื้นในพื้นที่ควบคุมด้วยความเร็วต่ำและมีผู้ดูแล
-
-หากยังไม่ผ่าน ให้ใช้ผลทดสอบแบบยกล้อเป็น Demo ชั่วคราวแทน
-
----
-
-# Troubleshooting
-
-| Problem | Check |
-|---|---|
-| `No module named ultralytics` | `.venv` และ Python Dependencies |
-| `No module named ydlidar` | SDK Installation ใน STEP 3 |
-| `No module named Rosmaster_Lib` | Motor Library และ Python Path |
-| PyTorch Install Failed | OS / Python Version / Architecture |
-| LiDAR Permission Denied | Serial Port / dialout Group |
-| LiDAR Initialize Failed | USB / Port / SDK / Power |
-| `INSUFFICIENT ... DATA` | Sensor Orientation และ Scan Coverage |
-| `STALE LIDAR DATA` | USB / SDK / CPU Load |
-| `Cannot open camera 0` | Camera Device / Video Pipeline |
-| Port 8080 In Use | โปรแกรมอื่นกำลังทำงาน |
-| YOLO ไม่จับ Dino | Model / Camera / Lighting / Confidence |
-| AUTO ถูก Block | Detection / LiDAR Readiness / Mode |
-| Robot เคลื่อนที่ผิดปกติ | ตัดกำลังมอเตอร์และหยุดการทดสอบ |
-
----
-
-# Final Report to Team
-
-ส่งข้อมูลกลับทีม:
-
-1. Raspberry Pi OS / Python Version / Architecture
-2. ผลการติดตั้ง YOLO และ YDLidar SDK
-3. ผล `Rosmaster_Lib` Import
-4. Serial Port และ Front Angle ของ T-MINI Plus
-5. ภาพกล้องที่มี YOLO Bounding Box
-6. ผล LiDAR Scan ด้านหน้า/ซ้าย/ขวา
-7. ผล Manual Test แบบยกล้อ
-8. ผล Auto + LiDAR Test แบบยกล้อ
-9. วิดีโอ STOP เมื่อ Dino หายหรือมีสิ่งกีดขวาง
-10. ผลทดสอบ Meow และ Buzzer
-11. Error Logs หากมี
-12. วิดีโอ Final Demo เมื่อผ่าน Hardware Safety Tests
-
----
-
-# Technical Information
-
-| Component | Technology |
-|---|---|
-| Robot | ROSMASTER M1 |
-| Object Detection | YOLO11n V7.2 |
-| Model | `models/best.pt` |
-| Class | `green_dino` |
-| Camera | OpenCV |
-| LiDAR | YDLIDAR T-MINI Plus |
-| LiDAR SDK | Official YDLidar-SDK |
-| Motor Library | `Rosmaster_Lib` |
-| Web Interface | Python HTTP Server Port 8080 |
-| Docker | Not Required |
-| ROS2 | Optional |
-
-## Main Files
-
-| File | Purpose |
-|---|---|
-| `robot_teleop_yolo_pi_dryrun.py` | YOLO + Mock Motor |
-| `robot_teleop_yolo_robot.py` | YOLO + Robot Controller |
-| `robot_teleop_yolo_lidar.py` | LiDAR-integrated Entry Point |
-| `tmini_plus_lidar.py` | T-MINI Plus Reader |
-| `tests/test_tmini_plus_lidar.py` | Simulated LiDAR Tests |
-| `models/best.pt` | Trained YOLO V7.2 Model |
-| `requirements.txt` | Python Dependencies |
-
-## Official References
-
-- [YDLidar-SDK](https://github.com/YDLIDAR/YDLidar-SDK)
-- [T-MINI Plus Python Example](https://github.com/YDLIDAR/YDLidar-SDK/blob/master/python/examples/tminiplus_test.py)
-- [Yahboom T-MINI Plus Resources](https://github.com/YahboomTechnology/T-MINI-PLUS-Lidar)
-
-**This repository provides experimental robot integration. Physical AUTO FOLLOW remains unverified until real hardware tests and independent stopping safeguards pass.**
+อย่าอัปโหลด `.venv/`, `__pycache__/`, cache, ไฟล์ backup, log, ข้อมูลส่วนตัว หรือ credentials. `models/best.pt` ที่มีใน Repository อยู่แล้วให้ใช้ต่อ ไม่ต้องอัปโหลดซ้ำหากไฟล์ยังตรงรุ่น
