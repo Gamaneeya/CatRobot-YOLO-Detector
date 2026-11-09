@@ -1,5 +1,8 @@
 
 import math
+import os
+from lidar_360_guard import evaluate_circle
+from lidar_directional_avoidance import collect_directional
 import threading
 import time
 
@@ -10,8 +13,15 @@ SECTOR_BINS = {
     "right": [(-105, -70), (-70, -35), (-35, 0)]
 }
 
-FRONT_STOP_M = 0.70
-SIDE_STOP_M = 0.60
+# Keep the actual Pi settings when experimental 22cm is OFF.
+# LiDAR distance is from its measuring origin, not the bumper surface.
+_EXPERIMENTAL_22CM = os.environ.get('CATROBOT_LIDAR_22CM_TEST', '0') == '1'
+# Opt-in obstacle-distance profile. Unlike 360 radius 0.22m this is
+# a forward/side sector guard. Camera may see Dino even when LiDAR blocks it.
+_FRONT40_SIDE30 = os.environ.get('CATROBOT_LIDAR_FRONT40_SIDE30', '0') == '1'
+_FRONT28_SIDE26 = os.environ.get('CATROBOT_LIDAR_FRONT28_SIDE26', '0') == '1'
+FRONT_STOP_M = 0.28 if _FRONT28_SIDE26 else (0.40 if _FRONT40_SIDE30 else 0.22 if _EXPERIMENTAL_22CM else 0.40)
+SIDE_STOP_M = 0.26 if _FRONT28_SIDE26 else (0.30 if _FRONT40_SIDE30 else 0.22 if _EXPERIMENTAL_22CM else 0.30)
 MAX_SCAN_AGE_S = 0.50
 MIN_POINTS_PER_BIN = 2
 MIN_VALID_RANGE_M = 0.05
@@ -249,6 +259,32 @@ class TminiPlusReader:
             result["reason"] = "STALE LIDAR DATA"
             return result
 
+        # Independent 360-degree directional geometry: evaluate all sectors
+        # BEFORE the existing circle/front/side early-return safety gates.
+        # Existing original LiDAR gating below remains unchanged when optional
+        # avoidance is disabled.
+        if os.environ.get('CATROBOT_AVOIDANCE_V1', '0') == '1':
+            result.update(collect_directional(points))
+
+        # Optional 360-degree proximity from the laser origin, independent of YOLO.
+        # This only reads existing scan echoes; the old missing/stale-data and
+        # front/side gates below remain authoritative for all wheel commands.
+        if os.environ.get('CATROBOT_LIDAR_360_RADIUS_TEST', '0') == '1':
+            circle = evaluate_circle(points, radius_m=0.22)
+            result.update(circle)
+            if os.environ.get('CATROBOT_LIDAR_360_DEBUG', '0') == '1':
+                now = time.monotonic()
+                if now - getattr(self, '_circle_debug_at', 0.0) >= 0.8:
+                    print('[LIDAR 360] min={}m angle={}deg hits={} radius=0.22m '
+                          'valid_points={}'.format(circle['circle_min_m'],
+                          circle['circle_min_angle_deg'],
+                          circle['circle_hits_inside'], len(points)), flush=True)
+                    self._circle_debug_at = now
+            if circle['circle_obstacle']:
+                result['reason'] = '360 OBSTACLE: {:.2f}m angle={:.0f}deg'.format(
+                    circle['circle_min_m'], circle['circle_min_angle_deg'])
+                return result
+
         for sector, bins in SECTOR_BINS.items():
             sector_distances = []
 
@@ -298,3 +334,13 @@ class TminiPlusReader:
 
         if self._thread is not None:
             self._thread.join(timeout=3.0)
+
+# CATROBOT_LIDAR_22CM_OBSTACLE_MEOW_20261109: installed
+
+# CATROBOT_LIDAR_360_INDEPENDENT_GUARD_20261109: installed
+
+# CATROBOT_BUZZER_FRONT40_20261109: installed
+
+# CATROBOT_FRONT28_SIDE26_MEOW_TUNE_20261109: installed
+
+# CATROBOT_AVOIDANCE_V1_20261109: installed

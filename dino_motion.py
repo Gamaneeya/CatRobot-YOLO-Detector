@@ -27,6 +27,11 @@ except ImportError:
     ServoControl=None
 
 TOPIC=sys.argv[1]
+MAX_LINEAR=float(sys.argv[2])
+if not math.isfinite(MAX_LINEAR) or MAX_LINEAR not in (0.085, 0.150):
+    print('ERROR UNAPPROVED_LINEAR_CAP',flush=True);sys.exit(6)
+print('BRIDGE_DIAG speed_limit_mps='+str(MAX_LINEAR),flush=True)
+print('BRIDGE_DIAG startup topic='+repr(TOPIC)+' domain='+str(os.environ.get('ROS_DOMAIN_ID'))+' localhost='+str(os.environ.get('ROS_LOCALHOST_ONLY')),flush=True)
 rclpy.init()
 node=rclpy.create_node('dino_follow_sole_motor_writer')
 pub=None
@@ -34,13 +39,15 @@ buzzer=None
 servo_pub=None
 servo_fields=None
 try:
-    deadline=time.monotonic()+10
+    deadline=time.monotonic()+20
     while time.monotonic()<deadline:
         rclpy.spin_once(node,timeout_sec=0.1)
         if node.get_subscriptions_info_by_topic(TOPIC):break
     subscribers=node.get_subscriptions_info_by_topic(TOPIC)
     others=node.get_publishers_info_by_topic(TOPIC)
     if not subscribers:
+        print('BRIDGE_DIAG missing_subscriber topic='+repr(TOPIC),flush=True)
+        print('BRIDGE_DIAG visible_topics='+repr(node.get_topic_names_and_types()),flush=True)
         print('ERROR NO_MOTOR_SUBSCRIBER',flush=True);sys.exit(3)
     if any(s.topic_type!='geometry_msgs/msg/Twist' for s in subscribers):
         print('ERROR BAD_MOTOR_TOPIC_TYPE',flush=True);sys.exit(4)
@@ -65,6 +72,7 @@ try:
     print('BUZZER_TOPIC /Buzzer',flush=True)
     buf=b''; v=0.; w=0.; last=0.; next_send=0.; next_check=time.monotonic()+.6
     servo_ready_reported=False
+    buzzer_subscriber_reported=None
     while rclpy.ok():
         rclpy.spin_once(node,timeout_sec=0)
         if select.select([sys.stdin],[],[],0)[0]:
@@ -81,12 +89,15 @@ try:
                     elif len(parts)==3 and parts[0]=='VEL':
                         nv,nw=map(float,parts[1:])
                         if not (math.isfinite(nv) and math.isfinite(nw)):raise ValueError()
-                        v=max(-.07,min(.07,nv))
+                        v=max(-MAX_LINEAR,min(MAX_LINEAR,nv))
                         w=max(-.22,min(.22,nw))
                         last=time.monotonic()
                     elif len(parts)==2 and parts[0]=='BEEP':
                         if parts[1] not in ('0','1'):raise ValueError()
                         msg=Bool();msg.data=(parts[1]=='1')
+                        buzzer_subs=[s for s in node.get_subscriptions_info_by_topic('/Buzzer')
+                                     if s.topic_type=='std_msgs/msg/Bool']
+                        print('BUZZER_COMMAND on='+parts[1]+' subscribers='+str(len(buzzer_subs)),flush=True)
                         buzzer.publish(msg)
                     elif len(parts)==3 and parts[0]=='SERVO':
                         if not servo_pub or not servo_fields:
@@ -112,6 +123,12 @@ try:
                 print('ERROR SECOND_MOTOR_WRITER',flush=True);break
             if not node.get_subscriptions_info_by_topic(TOPIC):
                 print('ERROR MOTOR_SUBSCRIBER_LOST',flush=True);break
+            bs=node.get_subscriptions_info_by_topic('/Buzzer')
+            buzzer_has_subscriber=any(s.topic_type=='std_msgs/msg/Bool' for s in bs)
+            if buzzer_has_subscriber != buzzer_subscriber_reported:
+                print('BUZZER_READY subscriber=std_msgs/msg/Bool' if buzzer_has_subscriber
+                      else 'BUZZER_UNAVAILABLE no /Buzzer std_msgs/msg/Bool subscriber',flush=True)
+                buzzer_subscriber_reported=buzzer_has_subscriber
             if servo_fields and servo_pub:
                 ss=node.get_subscriptions_info_by_topic('/Servo')
                 if any(s.topic_type=='yahboomcar_msgs/msg/ServoControl' for s in ss):
@@ -144,7 +161,10 @@ finally:
 
 class DockerMotor:
     """Starts precisely one active ROS2 /cmd_vel publisher inside Docker."""
-    def __init__(self, container='affectionate_lamport', domain=62):
+    def __init__(self, container='affectionate_lamport', domain=62, max_linear=0.085):
+        if not math.isfinite(max_linear) or max_linear not in (0.085, 0.150):
+            raise ValueError('Allowed ROS2 speed cap: 0.085 or 0.150 m/s')
+        self.max_linear=max_linear
         self._lock=threading.RLock()
         self._ready=False
         self._closed=False
@@ -157,18 +177,19 @@ class DockerMotor:
             'source /root/yahboomcar_ros2_ws/yahboomcar_ws/install/setup.bash; '
             f'export ROS_DOMAIN_ID={int(domain)}; '
             'export ROS_LOCALHOST_ONLY=1; '
-            'exec /usr/bin/python3 -u -c "$1" "$2"'
+            'exec /usr/bin/python3 -u -c "$1" "$2" "$3"'
         )
         cmd=['sudo','-n','docker','exec','-i',container,'/bin/bash','-lc',
-             shell,'dino_bridge',BRIDGE,CMD_VEL]
+             shell,'dino_bridge',BRIDGE,CMD_VEL,f'{self.max_linear:.3f}']
         try:
             self.proc=subprocess.Popen(cmd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
-                                       stderr=subprocess.STDOUT,bufsize=1,text=True)
+                                       stderr=subprocess.STDOUT,bufsize=1,text=True,
+                                       start_new_session=True)
         except Exception as exc:
             raise RuntimeError('Could not launch Docker motor bridge: '+str(exc)) from exc
         self._read_thread=threading.Thread(target=self._drain,daemon=True)
         self._read_thread.start()
-        deadline=time.monotonic()+18
+        deadline=time.monotonic()+30
         while time.monotonic()<deadline:
             try:line=self._out.get(timeout=.2)
             except queue.Empty:
@@ -223,7 +244,7 @@ class DockerMotor:
     def velocity(self,v,w):
         if not (math.isfinite(v) and math.isfinite(w)):
             v=w=0.
-        self._write(f'VEL {max(-.07,min(.07,v)):.4f} {max(-.22,min(.22,w)):.4f}')
+        self._write(f'VEL {max(-self.max_linear,min(self.max_linear,v)):.4f} {max(-.22,min(.22,w)):.4f}')
 
     def stop(self):
         if self.ready:
@@ -334,3 +355,7 @@ def follow_motion(center, area, target_visible, close_area=.22):
     if center>.57:
         return (0.,-.19,'TURN RIGHT')
     return (.055,0.,'FOLLOW FORWARD')
+
+# CATROBOT_V5_BRIDGE_SIGNAL_ISOLATION_SPEED_CEILING: installed
+
+# CATROBOT_V6_ORANGE_FOLLOW_BENCH_SPEED015_20261109: installed
