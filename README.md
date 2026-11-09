@@ -1,49 +1,60 @@
-# CatRobot V6 — Final Startup, Docker Check & AUTO Flow
+# CatRobot V6 — Final Startup, Docker Checks & AUTO Flow
 
-**เวอร์ชันที่ใช้อ้างอิง:** V6 Flow25 + Dino Arrival/Resume → HELP29/26 → **AUTO SOS36 / Safe Rearm37** (เวอร์ชันล่าสุดที่ผู้ใช้รายงานว่าทดสอบผ่าน)
+**Reference version:** V6 Flow25 + Dino Arrival/Resume + HELP29/26 + **AUTO SOS36 / Safe Rearm37** (the latest configuration reported as tested on the robot).
 
-**อุปกรณ์:** Raspberry Pi 5 บน ROSMASTER M1 · LiDAR T-Mini Plus · กล้อง + Servo · YOLO `models/best.pt` · ROS2 Motor Driver ใน Docker · Web Teleop
+**Hardware and software:** ROSMASTER M1 with Raspberry Pi 5 · YDLIDAR T-MINI Plus · camera and pan/tilt servos · custom YOLO model `models/best.pt` · ROS 2 Humble motor driver running in Docker · web-based teleoperation.
 
-> เอกสารนี้เป็น **ขั้นตอนเปิดและตรวจระบบที่ติดตั้งไว้แล้ว** ไม่ใช่ตัวติดตั้งแพตช์หรือคำสั่งเปลี่ยนโค้ด ถ้า Pi ยังไม่ได้ติดตั้ง AUTO SOS36 ให้ติดตั้งจากคู่มือแพตช์ก่อน ไม่ต้องติดตั้งใหม่ทุกครั้งที่บูต
+This is an **operating and verification guide for an existing installation**, not a patch installer or a fresh-device deployment script. Do not reinstall patches after every reboot. A newly provisioned Raspberry Pi also needs the appropriate ROS 2/Docker, YDLIDAR SDK, hardware, and audio setup.
 
-**กฎสำคัญ:** อย่าข้ามขั้นที่ขึ้น `FAIL` และอย่าเปิด Robot Runner หรือ ROS2 Motor Driver ซ้อนกันสองตัว
+**Rules:** Do not continue after a `FAIL` until its cause is resolved. Never run two robot control programs or two ROS 2 motor drivers at the same time.
 
-> **ความปลอดภัย:** คำสั่งหลักด้านล่างเปิด `--mode wheels-up` และความเร็วทดลอง `0.15 m/s` ใช้ได้เฉพาะ **หุ่นยนต์ยึดอยู่บนแท่นมั่นคงและล้อไม่สัมผัสพื้น** เท่านั้น เพราะเคยมีการชนจริงและยังไม่มีการวัดระยะเบรกบนพื้น อย่าอุ้มหุ่นยนต์ขณะ AUTO พร้อมสั่งล้อ หรือใช้มือทดสอบใกล้ล้อ/เซ็นเซอร์ที่กำลังเคลื่อนที่ ให้เตรียมวิธีตัดกำลังมอเตอร์ไว้เสมอ
-
+> **Safety — wheels-up testing only:** The run command below uses `--mode wheels-up` and an experimental speed cap of **0.15 m/s**. Secure the robot on a stable stand with **all wheels off the ground** and provide a physical way to disconnect motor power. Do not hold the robot while AUTO is active. The system has experienced collisions and its stopping distance and floor-level obstacle coverage are not yet validated. This README does **not** approve autonomous floor driving.
 
 ---
 
+## Project structure
 
-## Project Structure — ไฟล์ Source Code บน Raspberry Pi
-
-ส่วนนี้ช่วยให้คนอ่าน GitHub รู้จักจุดเริ่มต้นของโค้ด โดยผังด้านล่างสรุป **ไฟล์ที่ตรวจพบว่ามีอยู่บน Pi** และไฟล์ที่เกี่ยวข้องกับ Flow V6 ตามชื่อและการตั้งค่าที่ใช้รัน ไม่ใช่ผลตรวจ import chain ทุกไฟล์ (ยังต้องตรวจจาก Source Archive เพื่อยืนยัน dependency ที่ใช้งานจริง)
+The following files are available in the cleaned-up GitHub repository. The main entry point is `run_teleop_yolo_real.py`. Some modules are retained as dependencies or diagnostic tools; their presence alone does not mean every experimental behavior runs simultaneously.
 
 ```text
 CatRobot-YOLO-Detector/
-├── run_teleop_yolo_real.py       # Entry point ที่ใช้ในคำสั่งรันจริง
-├── robot_teleop_yolo_robot.py    # ส่วนประกอบ Robot/Web/YOLO (ตรวจการเรียกใช้จาก Source อีกครั้ง)
-├── robot_teleop.py               # ไฟล์ teleop เดิม
-├── dino_auto_center.py          # กล้องติดตามและการจัด Dino ให้อยู่กลางภาพ
-├── dino_auto_meow.py            # ระบบเสียงแมวและเงื่อนไขถึง Dino
-├── dino_motion.py               # การคำนวณ/ควบคุมความเร็วการเคลื่อนที่
-├── dino_help_resume_v6.py       # AUTO SOS36, WAIT_HELP, resume37
-├── dino_avoidance_v5.py         # โมดูลหลบสิ่งกีดขวางที่อยู่ในโครงการ
-├── dino_avoidance_v6.py         # โมดูลหลบสิ่งกีดขวาง V6
-├── lidar_directional_avoidance.py
-├── lidar_360_guard.py
-├── lidar_buzzer_tiers.py
-├── tmini_plus_lidar.py
-├── requirements.txt
+├── README.md                         # This English operating guide
+├── README_REAL_ROBOT_TH.md           # Additional Thai guide
+├── requirements.txt                  # Basic Python requirements (not full robot setup)
+├── .gitignore
+│
+├── run_teleop_yolo_real.py           # Real-robot entry point / orchestration
+├── robot_teleop_yolo_robot.py        # Web UI, camera, YOLO and interaction
+├── robot_teleop.py                   # Original teleoperation, audio and controls
+├── dino_motion.py                    # ROS 2 bridge, motors, servos, buzzer and LiDAR process
+├── dino_auto_center.py               # Pan/tilt tracking and parallel follow behavior
+├── dino_auto_meow.py                 # Automatic meow behavior
+├── dino_help_resume_v6.py            # V6 assisted help / SOS / safe resume
+├── dino_avoidance_v4.py              # Parent class in V4 → V5 → V6 dependency chain
+├── dino_avoidance_v5.py              # Parent class for V6 avoidance
+├── dino_avoidance_v6.py              # Optional V6 avoidance implementation
+│
+├── lidar_directional_avoidance.py    # Directional scan and safety gate
+├── lidar_360_guard.py                # 360-degree obstacle guard
+├── lidar_obstacle_alert.py           # Obstacle alert logic
+├── lidar_buzzer_tiers.py             # Buzzer and SOS patterns
+├── tmini_plus_lidar.py               # YDLIDAR reader
+├── catrobot_vision_diagnostics.py    # Diagnostic helper
+│
 ├── models/
-│   └── best.pt                  # มีบน Pi; ไม่รวมใน source-only tar.gz
-└── README.md
+│   └── best.pt                       # Trained green-dinosaur YOLO weights
+├── docs/
+│   ├── ROBOT_SETUP_TH.md
+│   └── TMINI_PLUS_SETUP_TH.md
+└── tests/
+    └── test_tmini_plus_lidar.py
 ```
 
-**ไฟล์เพิ่มเติมใน Pi:** มีสคริปต์ `apply_*.py`, โค้ดทดลอง `cat_robot_*.py`, เวอร์ชัน `dino_avoidance_v3/v4/v7.py`, ไฟล์ `test_*.py` และโฟลเดอร์ backup/payload เก่าด้วย ไม่ควรถือว่าเป็นส่วนของ Final Runtime ทั้งหมดหรืออัปโหลดขึ้น GitHub โดยไม่คัดแยกก่อน
+**Important external resources:** The original Dino-arrival sound is expected at `~/sounds/meow.wav` on the Raspberry Pi. ROS 2 and the motor driver run in the pre-existing Docker container named `affectionate_lamport` (ROS domain `62`). The Git repository does not contain a full Docker image or a complete Raspberry Pi system image.
 
-**ไฟล์ภายนอก Repository:** เสียงถึงเป้าหมายอยู่ที่ `~/sounds/meow.wav`; ส่วน ROS2 Motor Driver ทำงานใน Docker container `affectionate_lamport` และโมเดล YOLO อยู่ที่ `models/best.pt` บน Pi จึงควรอธิบายวิธีเตรียมไฟล์เหล่านี้เมื่อเพื่อนต้องการนำโค้ดไปรัน ไม่ใช่แค่อ่าน Source
+**Older work:** Installer scripts such as `apply_*.py`, historical prototypes, backups, datasets, `.venv/`, logs and patch payloads are not part of this final GitHub runtime source. They must not be copied back into the repository just to make the tree larger.
 
-ถ้าต้องการดูรายการไฟล์จริงจาก Pi (ไม่รวม virtual environment, Git และไฟล์ backup) รัน:
+To inspect source files on the Raspberry Pi without listing virtual environments and backup directories:
 
 ```bash
 cd ~/CatRobot-YOLO-Detector
@@ -52,80 +63,87 @@ find . -maxdepth 2 \
   -type f \( -name '*.py' -o -name '*.md' -o -name 'requirements*.txt' \) -print | sort
 ```
 
-> สำหรับ GitHub ควรอัปโหลด Source ที่ยืนยันว่าจำเป็นจริง + README + requirements เท่านั้น ก่อนเผยแพร่ให้ตรวจข้อมูลลับ และไม่เพิ่ม `.venv/`, `__pycache__/`, `backups/`, `*.log`, Dataset หรือไฟล์โมเดลขนาดใหญ่โดยไม่จำเป็น
+> Before publishing source code, review all staged changes for credentials, private information, generated logs and unnecessary local data. Do not stage `.venv/`, `__pycache__/`, backups or training datasets.
 
 ---
 
-## Flow ภาพรวม
+## Startup flow
 
-`SSH เข้า Pi` → `ตรวจไฟล์ + Python` → `ตรวจ USB / LiDAR / Motor` → **`ตรวจ Docker + หยุด Driver ตัวผิด + เริ่มตัวที่ใช้จริง`** → `ตรวจโปรแกรมค้าง + Port 8080 + Camera` → `ตรวจโมเดล + Audio` → `ยกล้อทดสอบ V6 AUTO/Arc Follow` → `ตรวจ SOS / Meow / Resume` → `STOP / Shutdown`
+`SSH to Pi` → `Check source and Python` → `Check USB / LiDAR / motor serial` → **`Check Docker → stop conflicting motor driver → start affectionate_lamport → verify ROS 2`** → `Check stale processes / port 8080 / camera` → `Check YOLO model / audio` → `Run V6 with wheels up` → `Verify STOP / AUTO / SOS / meow / resume` → `Stop and shut down safely`.
 
 ```text
-เปิด Raspberry Pi
-   ↓
-[STEP 0] SSH + เข้า .venv
-   ↓
-[STEP 1] ตรวจ Source / Python modules / เกณฑ์ V6    (หลังบูตหรือแก้โค้ด)
-   ↓
-[STEP 2] ตรวจ USB / LiDAR / Motor Serial             (หลังบูตหรือ USB เปลี่ยน)
-   ↓
-[STEP 3] ตรวจ Docker → หยุดเฉพาะ Motor Driver ตัวผิด → เริ่ม affectionate_lamport → ตรวจ ROS2
-   ↓
-[STEP 4] ตรวจ Runner ค้าง / Port 8080 / Camera / LiDAR Port  (ทุกครั้งก่อนรัน)
-   ↓
-[STEP 5] ตรวจ best.pt / meow.wav                    (หลังบูตหรือเปลี่ยนไฟล์)
-   ↓
-[STEP 6] เปิด CatRobot V6 บนแท่นยกล้อที่มั่นคง
-   ↓
-[STEP 7] ตรวจ Log + STOP / MANUAL / AUTO / SOS / Arrival / Resume
-   ↓
-[STEP 8] STOP + Ctrl+C → ตรวจโปรแกรมปิด → Shutdown ตามต้องการ
+Power on the Raspberry Pi
+    |
+    v
+STEP 0: SSH and activate Python virtual environment
+    |
+    v
+STEP 1: Verify source files, Python modules and V6 thresholds
+    |
+    v
+STEP 2: Verify USB, LiDAR and motor serial connections
+    |
+    v
+STEP 3: Check Docker -> stop only the confirmed conflicting motor driver
+        -> start affectionate_lamport -> verify ROS 2
+    |
+    v
+STEP 4: Check for stale runners, port 8080, camera and LiDAR ownership
+    |
+    v
+STEP 5: Verify best.pt and meow.wav
+    |
+    v
+STEP 6: Run CatRobot V6 on a stable, wheels-up test stand
+    |
+    v
+STEP 7: Verify logs, STOP, MANUAL, AUTO, SOS, arrival and resume
+    |
+    v
+STEP 8: STOP -> Ctrl+C -> verify process exit -> shut down if required
 ```
 
-| ทำเมื่อไหร่ | ขั้นตอน |
+| When | Actions |
 | --- | --- |
-| ทุกครั้งที่เปิด SSH | STEP 0 |
-| ครั้งแรกหลังบูต หรือหลังแก้โค้ด / USB / Docker | STEP 1–3 และ STEP 5 |
-| **ทุกครั้งก่อนรันโปรแกรม** รวมถึงรันรอบสองในบูตเดียวกัน | STEP 4 |
-| ทุกครั้งที่ทดลองหุ่นยนต์ | STEP 6–8 |
+| After each SSH login | STEP 0 |
+| After boot, code updates, USB changes or Docker changes | STEP 1–3 and STEP 5 |
+| **Before every program launch**, including a second launch in the same boot | STEP 4 |
+| For each controlled robot test | STEP 6–8 |
 
-**เงื่อนไขการทดสอบบนพื้น:** ยังไม่รวมคำสั่งขับบนพื้นใน README นี้ เพราะหุ่นยนต์เคยชนจริง และยังไม่ได้สอบเทียบระยะเบรก/พื้นที่กวาด/วัตถุต่ำกว่า LiDAR ที่ความเร็ว `0.15 m/s` เมื่อทดสอบและยืนยันความปลอดภัยแล้วจึงทำขั้นตอนทดลองบนพื้นแยกต่างหาก อย่าใช้ `--mode wheels-up` เพื่ออ้างว่าได้ทดสอบบนพื้นสำเร็จ
+If USB disconnects, LiDAR stops scanning, Docker restarts, or the program is suspended with `Ctrl+Z`, return to STEP 2–4 even if the Raspberry Pi has not rebooted.
 
-หาก USB หลุด, LiDAR ไม่สแกน, Docker รีสตาร์ต, หรือใช้ `Ctrl+Z` ค้าง ให้กลับไปตรวจ STEP 2–4 ใหม่ แม้ยังไม่ได้ปิด Pi
+**Floor tests are not covered by this operating procedure.** They require independent braking, physical-clearance, obstacle-detection and emergency-stop validation.
 
 ---
 
+## STEP 0 — SSH into Raspberry Pi
 
-## STEP 0 — SSH เข้า Raspberry Pi
+**On Windows CMD or PowerShell:**
 
-**บน Windows CMD / PowerShell**
-
-```
+```bat
 ssh pi@192.168.1.11
 ```
 
-> `192.168.1.11` เป็น IP ของ Pi ที่ใช้ในการทดสอบก่อนหน้า หากเครือข่ายเปลี่ยนให้ใช้ IP ปัจจุบัน
+The IP address is from an earlier test; replace it with the Pi's current IP address when the network changes.
 
-**บน Raspberry Pi SSH**
+**On the Raspberry Pi host:**
 
-```
+```bash
 cd ~/CatRobot-YOLO-Detector
 source .venv/bin/activate
 pwd
 python --version
 ```
 
-**ต้องเห็น:** path `/home/pi/CatRobot-YOLO-Detector` และ Prompt มี `(.venv)`; Python เรียกใช้งานได้
-
+Expected directory: `/home/pi/CatRobot-YOLO-Detector`. Python must run from the project's `.venv` (typically indicated by `(.venv)` in the shell prompt).
 
 ---
 
+## STEP 1 — Verify final V6 code, Python modules and YOLO hooks
 
-## STEP 1 — ตรวจโค้ด Final V6, Python Modules และ YOLO
+Run after boot and repeat after editing source, rebuilding `.venv` or updating packages.
 
-ทำ **ครั้งเดียวหลังเปิดเครื่อง** และทำซ้ำเมื่อแก้โค้ด, เปลี่ยน `.venv` หรืออัปเดตแพ็กเกจ
-
-```
+```bash
 cd ~/CatRobot-YOLO-Detector
 source .venv/bin/activate
 
@@ -134,16 +152,19 @@ missing=0
 for f in \
   run_teleop_yolo_real.py \
   robot_teleop_yolo_robot.py \
+  robot_teleop.py \
   dino_auto_center.py \
   dino_auto_meow.py \
   dino_motion.py \
   dino_help_resume_v6.py \
+  dino_avoidance_v4.py \
+  dino_avoidance_v5.py \
   dino_avoidance_v6.py \
   lidar_directional_avoidance.py \
   lidar_360_guard.py \
+  lidar_obstacle_alert.py \
   lidar_buzzer_tiers.py \
   tmini_plus_lidar.py \
-  robot_teleop.py \
   models/best.pt; do
   if [ -f "$f" ]; then
     echo "PASS: $f"
@@ -158,16 +179,19 @@ echo '===== 2. PYTHON SYNTAX ====='
 python -m py_compile \
   run_teleop_yolo_real.py \
   robot_teleop_yolo_robot.py \
+  robot_teleop.py \
   dino_auto_center.py \
   dino_auto_meow.py \
   dino_motion.py \
   dino_help_resume_v6.py \
+  dino_avoidance_v4.py \
+  dino_avoidance_v5.py \
   dino_avoidance_v6.py \
   lidar_directional_avoidance.py \
   lidar_360_guard.py \
+  lidar_obstacle_alert.py \
   lidar_buzzer_tiers.py \
-  tmini_plus_lidar.py \
-  robot_teleop.py && echo 'PASS: PYTHON SYNTAX'
+  tmini_plus_lidar.py && echo 'PASS: PYTHON SYNTAX'
 
 echo '===== 3. PYTHON MODULES ====='
 python - <<'PY'
@@ -176,7 +200,6 @@ import sys
 
 required = ('ultralytics', 'torch', 'cv2', 'numpy', 'ydlidar')
 failed = []
-
 for name in required:
     try:
         module = importlib.import_module(name)
@@ -185,17 +208,14 @@ for name in required:
     except Exception as exc:
         print(f'FAIL: {name}: {exc}')
         failed.append(name)
-
 if failed:
     sys.exit('MODULE CHECK FAILED')
-
 print('PASS: ALL MODULES')
 PY
 
 echo '===== 4. FINAL AUTO HOOKS ====='
 grep -nE 'start_auto_center|start_auto_meow' \
   run_teleop_yolo_real.py || echo 'CHECK: AUTO HOOKS NOT FOUND'
-
 grep -n 'CATROBOT_MOVE_WHILE_CENTERING' \
   dino_auto_center.py || echo 'CHECK: PARALLEL MODE NOT FOUND'
 
@@ -206,7 +226,6 @@ from pathlib import Path
 
 tree = ast.parse(Path('dino_help_resume_v6.py').read_text())
 actual = {}
-
 for node in tree.body:
     if isinstance(node, ast.Assign):
         for target in node.targets:
@@ -215,7 +234,6 @@ for node in tree.body:
                     actual[target.id] = ast.literal_eval(node.value)
                 except (ValueError, TypeError):
                     pass
-
 expected = {
     'STOP_AHEAD_M': 0.36,
     'RESUME_FRONT_FORWARD_M': 0.37,
@@ -224,9 +242,7 @@ expected = {
     'CLEAR_FLANK_M': 0.26,
     'CLEAR_CIRCLE_M': 0.26,
 }
-
 failed = False
-
 for name, value in expected.items():
     found = actual.get(name)
     if found == value:
@@ -234,52 +250,42 @@ for name, value in expected.items():
     else:
         print(f'FAIL: {name}: expected {value}, got {found}')
         failed = True
-
 if failed:
     raise SystemExit('FAIL: V6 SOS THRESHOLD MISMATCH')
-
 print('PASS: FINAL V6 AUTO SOS36 / RESUME37 / HELP29-26')
 PY
 
 echo '===== 6. YOLO / SPEED / ARRIVAL FLAGS ====='
 grep -n 'CATROBOT_ORANGE_FOLLOW_TRIAL' \
   run_teleop_yolo_real.py || echo 'CHECK: ORANGE FOLLOW NOT FOUND'
-
 grep -n 'CATROBOT_BENCH_SPEED_015' \
   run_teleop_yolo_real.py || echo 'CHECK: SPEED 015 NOT FOUND'
-
 grep -n 'DINO ARRIVAL V6' \
   dino_auto_center.py || echo 'CHECK: DINO RESUME NOT FOUND'
-
 ```
 
+### Expected V6 settings
 
-## ค่าที่ต้องตรงกับ CatRobot ล่าสุด
+| Subsystem | Reference value |
+| --- | --- |
+| AUTO forward stop / SOS | **0.36 m** (36 cm) |
+| Forward rearm after WAIT_HELP | **0.37 m** (37 cm) |
+| General front/rear clearance for WAIT_HELP | **0.29 m** (29 cm) |
+| Flank and 360° clearance for WAIT_HELP | **0.26 m** (26 cm) |
+| Dino tracking | Confidence `0.10`; `1` confirmation frame |
+| Dino arrival | Image box area `4.5%` plus centering conditions |
+| Dino departure | Four new frames with the box below the configured rearm threshold |
+| Experimental AUTO/MANUAL translational speed | Up to `0.15 m/s`, wheels-up only |
 
-| **ระบบ**                  | **ค่า**                         |
-| ------------------------- | ------------------------------- |
-| AUTO SOS ด้านหน้า         | 36 ซม.                          |
-| Resume เดินหน้าหลัง SOS   | 37 ซม.                          |
-| WAIT_HELP หน้า/หลัง       | 29 ซม.                          |
-| WAIT_HELP ด้านข้าง/360°   | 26 ซม.                          |
-| Dino Tracking             | Conf 0.10 / 1 frame             |
-| Dino Arrival              | Box 4.5% + Center               |
-| Dino Departure            | 4 เฟรมที่ขนาดกรอบเล็กลงตามเกณฑ์ |
-| ความเร็วทดลอง AUTO/MANUAL | สูงสุด 0.15 m/s                 |
-
-ข้อสำคัญ: การตรวจพบ Flag ใน Source ไม่ได้หมายความว่าเปิดใช้งานแล้ว ต้องตรวจคำสั่งรันและ Log ด้วย และการตรวจ Syntax ผ่านไม่ได้ยืนยันว่าทุกฟังก์ชันทำงานครบ
-
-**ผลที่ต้องได้:** ไฟล์ครบ, `PASS: PYTHON SYNTAX`, `PASS: ALL MODULES` และเห็น AUTO hooks / Parallel Mode / เกณฑ์ SOS36 → Rearm37. ถ้ามี `FAIL` ให้แก้ปัญหานั้นก่อน อย่าเพิ่งเปิดมอเตอร์
-
+**Interpretation:** A passing syntax check does not prove hardware behavior. Finding a feature flag in source does not mean it is enabled; verify the launch command and runtime logs. Do not proceed past a real `FAIL`.
 
 ---
 
+## STEP 2 — Check USB devices and serial ports
 
-## STEP 2 — ตรวจ USB และ Serial Ports
+Perform after each boot, after USB changes or when LiDAR or power stability is in doubt.
 
-ทำ **ครั้งแรกหลังเปิดเครื่อง** หรือเมื่อถอดเสียบ USB, LiDAR มีปัญหา หรือไฟเลี้ยงไม่เสถียร
-
-```
+```bash
 echo '===== 1. USB DEVICES ====='
 lsusb -t
 lsusb
@@ -310,27 +316,25 @@ if [ -c "$MOTOR_PORT" ]; then
 fi
 ```
 
-ผลที่เคยพบจากเครื่องนี้:
+Previously observed on this robot:
 
-| **อุปกรณ์**       | **ค่าที่เคยพบ** | **หมายเหตุ**       |
-| ----------------- | --------------- | ------------------ |
-| LiDAR T-Mini Plus | /dev/ttyUSB0    | USB–UART CP2102    |
-| Motor Controller  | /dev/ttyUSB1    | USB–UART CH341     |
-| Motor symlink     | /dev/myserial   | ใช้ตรวจเส้นทางจริง |
+| Device | Previously observed path | USB interface |
+| --- | --- | --- |
+| T-MINI Plus LiDAR | `/dev/ttyUSB0` | CP2102 USB–UART |
+| Motor controller | `/dev/ttyUSB1` | CH341 USB–UART |
+| Motor symlink | `/dev/myserial` | Resolve to the actual motor port |
 
-**สำคัญ:** `ttyUSB0` / `ttyUSB1` อาจสลับหลังรีบูต ให้ยึดผลจาก `readlink -f` ไม่เดาพอร์ตและไม่สลับสายโดยไม่จำเป็น LiDAR Port ควรว่างก่อนเปิดโปรแกรมหลัก; Motor Port อาจถูกครอบครองโดย ROS2 Motor Driver ใน Docker ตามปกติ
-
+`ttyUSB0` and `ttyUSB1` can switch after a reboot. **Always use the actual output from `readlink -f`, not a guessed serial number.** Before starting the CatRobot runner, the LiDAR port should be free. It is normal for the Docker ROS 2 motor driver to own the motor port.
 
 ---
 
+## STEP 3 — Check Docker, stop a conflicting motor driver, and verify ROS 2
 
-## STEP 3 — ตรวจ Docker, หยุด Motor Driver ตัวผิด และตรวจ ROS2
+**Perform after every Raspberry Pi boot**, or whenever Docker/motor control is restarted or changes unexpectedly. This robot has previously started a container other than `affectionate_lamport` after boot.
 
-**ทำครั้งแรกหลังเปิด Raspberry Pi ใหม่ทุกครั้ง** และทำใหม่เมื่อ Docker/Motor Driver รีสตาร์ตหรือสลับตัวเอง เพราะเครื่องนี้เคยเปิด Container อื่นแทน `affectionate_lamport` หลังบูต
+Before changing Docker containers, press **STOP** if the web control is available, verify the wheels are stationary, and **disconnect motor power during driver changes**. Do not stop/restart drivers while the robot can move.
 
-ก่อนจัดการ Container: กด STOP หากหน้าเว็บยังเข้าถึงได้ ยืนยันว่าล้อหยุด และ **ตัดกำลังไฟมอเตอร์ระหว่างเปลี่ยน Driver** ไม่สั่ง `docker stop`/`docker start` ขณะหุ่นยนต์อาจเคลื่อนที่ได้
-
-### 3.1 — ดู Container ที่ Docker เปิดจริง
+### 3.1 Inspect running containers and motor serial ownership
 
 ```bash
 echo '===== RUNNING DOCKER CONTAINERS ====='
@@ -349,11 +353,11 @@ else
 fi
 ```
 
-**ที่ต้องการ:** Motor Driver สำหรับโปรเจกต์นี้คือ Container ชื่อ **`affectionate_lamport`** เท่านั้น ส่วน Container ชื่ออื่น **ยังไม่ถือว่าผิดโดยอัตโนมัติ** ต้องตรวจว่าเป็น Driver ที่แย่ง `/dev/myserial` / `/dev/ttyUSB*` หรือสั่ง `/cmd_vel` ด้วยหรือไม่
+For this setup, the intended motor-driver container is **`affectionate_lamport`**. An unrelated container is **not automatically wrong** just because it has a different name. Investigate whether it duplicates the ROS 2 motor driver, owns the motor serial port, or publishes conflicting commands.
 
-### 3.2 — ถ้ามี Motor Driver ตัวอื่นเปิดผิดตัว: ตรวจชื่อก่อน แล้วสั่งหยุด
+### 3.2 Inspect and stop a confirmed conflicting driver
 
-ตรวจ Container ที่สงสัย โดยใช้ชื่อ **ที่ขึ้นจาก `sudo docker ps` จริง** เช่นหากพบ `interesting_feynman`:
+Use the **actual** container name shown by `sudo docker ps`. For example, if `interesting_feynman` appears:
 
 ```bash
 OTHER_CONTAINER="interesting_feynman"
@@ -362,42 +366,42 @@ sudo docker inspect -f 'Name={{.Name}} Image={{.Config.Image}} Restart={{.HostCo
 sudo docker top "$OTHER_CONTAINER"
 ```
 
-> `interesting_feynman` เป็น **ตัวอย่างชื่อที่เคยพบ** ไม่ใช่การยืนยันว่าตัวนี้เป็น Driver ผิดในบูตปัจจุบัน ให้เปลี่ยน `OTHER_CONTAINER` เป็นชื่อที่ตรวจพบ และยืนยันก่อนว่ามันเป็น Motor Driver ซ้ำ/ครอบครองพอร์ตจริง ไม่ใช่ Container สำหรับงานอื่น
-
-**เมื่อยืนยันแล้วว่าเป็น Motor Driver ตัวที่ผิด** ให้ใช้คำสั่งนี้:
+The name `interesting_feynman` is a **previously observed example**, not a claim that it is the wrong container on the current boot. Replace it with the container you inspected. **Only after confirming that it is a conflicting motor driver**, run:
 
 ```bash
 sudo docker stop "$OTHER_CONTAINER"
 ```
 
-หรือเขียนแบบใส่ชื่อโดยตรง เช่น **เฉพาะเมื่อยืนยันว่า `interesting_feynman` เป็นตัวที่ผิดจริง**:
+Alternatively, after confirming that the example container is the conflict:
 
 ```bash
 sudo docker stop interesting_feynman
 ```
 
-รูปแบบคำสั่งทั่วไปคือ `sudo docker stop ชื่อคอนเทนเนอร์` — **อย่าพิมพ์ `(DOCKER NAME)` หรือ `<DOCKER NAME>` ตรง ๆ ใน Terminal** เพราะวงเล็บและเครื่องหมาย `<` มีความหมายพิเศษใน Shell
+Do not type placeholders such as `(DOCKER NAME)` or `<DOCKER NAME>` verbatim: parentheses and angle brackets have special meanings in a shell. Do not stop every Docker container indiscriminately.
 
-ตรวจซ้ำว่า Container ที่ผิดหยุดแล้ว:
+Confirm the unwanted driver is no longer running:
 
 ```bash
 sudo docker ps --format 'table {{.Names}}\t{{.Status}}'
 ```
 
-**ไม่ใช้** `sudo docker stop $(sudo docker ps -q)` หรือหยุดทุก Container แบบเหมารวม
+### 3.3 Start the intended container
 
-### 3.3 — เปิด Motor Driver ที่เราใช้จริง
-
-หาก `affectionate_lamport` ยังไม่ได้ `Up` และแน่ใจว่า Driver ตัวผิดหยุดแล้ว:
+If `affectionate_lamport` is not already running, and the conflicting driver has been stopped:
 
 ```bash
 sudo docker start affectionate_lamport
 sudo docker ps --format 'table {{.Names}}\t{{.Status}}'
 ```
 
-หาก Container ที่ถูกต้อง `Up` อยู่แล้ว **ไม่ต้องสั่ง start ซ้ำ** หากเปิดไม่ขึ้น ให้ตรวจ `sudo docker logs --tail 80 affectionate_lamport` แทนการเปิด Container ใหม่เพิ่ม
+If it is already `Up`, leave it running. If startup fails, inspect the logs rather than launching another motor driver:
 
-### 3.4 — ตรวจ ROS2 `/cmd_vel` หลังเลือก Container ถูกต้อง
+```bash
+sudo docker logs --tail 80 affectionate_lamport
+```
+
+### 3.4 Verify the ROS 2 `/cmd_vel` subscriber
 
 ```bash
 echo '===== ROS2 MOTOR DRIVER ====='
@@ -410,32 +414,31 @@ ros2 topic info /cmd_vel -v
 '
 ```
 
-**ผลที่ต้องการ:** `/cmd_vel` มี `Subscription count: 1`, ชื่อ node ฝั่ง Driver เช่น `driver_node`, และ Topic type `geometry_msgs/msg/Twist` อย่าเปิด CatRobot Runner จนกว่าจะยืนยันว่าใช้ Motor Driver ถูกตัวและไม่มีตัวอื่นควบคุมมอเตอร์ซ้ำ
+Expected: `/cmd_vel` has **`Subscription count: 1`**, a motor-driver node such as `driver_node`, and topic type `geometry_msgs/msg/Twist`. Do not start the robot runner while there are multiple competing motor drivers.
 
-### 3.5 — ทางเลือก: ป้องกัน Driver ผิดตัวเปิดเองหลังรีบูต
+### 3.5 Optional: prevent a confirmed wrong driver from auto-starting
 
-หากตรวจแน่ชัดแล้วว่า Container ผิดตัวถูกตั้งให้เริ่มอัตโนมัติทุกครั้ง สามารถตรวจ Restart Policy ได้ด้วย:
+Check its Docker restart policy:
 
 ```bash
 sudo docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$OTHER_CONTAINER"
 ```
 
-**เฉพาะเมื่อผู้ดูแลเครื่องตกลงให้ปิดการเริ่มอัตโนมัติของ Container นั้น** ใช้:
+**Only with the machine owner's approval**, disable auto-restart for the confirmed conflicting container:
 
 ```bash
 sudo docker update --restart=no "$OTHER_CONTAINER"
 ```
 
-คำสั่งนี้เปลี่ยนการตั้งค่า Docker แบบถาวรข้ามการรีบูต **ไม่ลบ Container และไม่หยุด Container ที่กำลังรัน** (จึงต้องใช้ `docker stop` แยกต่างหาก) ควรจด Restart Policy เดิมไว้ก่อน และไม่เปลี่ยน Policy ของ `affectionate_lamport` หรือ Container ที่ไม่ทราบหน้าที่
+This changes the policy across reboots. It **does not remove or stop** a currently running container; run `docker stop` separately when appropriate. Record the original policy first. Do not change the restart policy of `affectionate_lamport` or unrelated containers.
 
 ---
 
+## STEP 4 — Check and clean up before every CatRobot launch
 
-## STEP 4 — CHECK & CLEAN ก่อนเปิด CatRobot ทุกครั้ง
+Complete this step **every time** before launching the runner, including after `Ctrl+C`, an SSH disconnect, or a previous run during the same boot.
 
-แม้ผ่าน STEP 1–3 มาแล้ว ต้องทำขั้นนี้ **ทุกครั้งก่อนรัน CatRobot** รวมทั้งหลัง `Ctrl+C`, หลัง SSH หลุด หรือจะรันใหม่ในบูตเดียวกัน
-
-```
+```bash
 echo '===== 1. OLD ROBOT PROCESSES ====='
 ps -eo pid,ppid,stat,tty,args | grep -E '[r]un_teleop_yolo_real.py|[r]obot_teleop_yolo_robot.py|[y]dlidar|[t]mini' || true
 
@@ -459,42 +462,38 @@ echo '===== 5. USB / POWER ERRORS ====='
 sudo journalctl -k --no-pager -n 100 | grep -Ei 'usb|ttyUSB|cp210|voltage|reset|disconnect' | tail -n 35 || true
 ```
 
-**ก่อนรันต้องได้:** Port 8080 ว่าง, ไม่มี Runner CatRobot ค้าง, LiDAR Serial ไม่มีโปรแกรมอื่นจับ, `/dev/video0` มีอยู่ และ Motor Driver ยังทำงาน
+Before starting, confirm that port 8080 is free, there is no old CatRobot runner, the LiDAR port is not owned by another program, the camera exists, and the correct Docker motor driver is running.
 
-### กรณี Port 8080 ยังมี `LISTEN`
+### If web port 8080 is still listening
 
-**อย่าเพิ่งเปิดโปรแกรมใหม่ซ้อน** ตรวจ PID ก่อน:
+Do **not** launch another instance. Inspect the PID reported by `ss`:
 
-```
+```bash
 sudo ss -ltnp | grep ':8080'
 ps -o pid,ppid,stat,tty,cmd -p PID_HERE
 ```
 
-ให้แทน `PID_HERE` ด้วยเลขจริงจาก `ss` ไม่พิมพ์คำว่า `PID_HERE` ตามตัวอักษร
+Replace `PID_HERE` with the **numeric PID** returned by `ss`. If it is the previous CatRobot runner in your terminal, click **STOP**, verify the wheels stop, and press **`Ctrl+C`** in that terminal. **Do not use `Ctrl+Z`** to stop the robot: it only suspends the process.
 
-ถ้าเป็น CatRobot ที่เปิดจาก Terminal เดิม: กด **STOP** บนเว็บ, ยืนยันว่าล้อหยุด, แล้วกด `Ctrl+C` ใน Terminal ที่รัน CatRobot (ห้าม `Ctrl+Z` เพราะเป็นการพักงาน)
+If the previous terminal is unavailable, **disconnect motor power first**, verify the PID really belongs to the stale CatRobot runner, and then terminate it:
 
-ถ้าหา Terminal เดิมไม่พบ: **ตัดกำลังมอเตอร์ก่อน**, ยืนยัน PID ว่าเป็นโปรแกรม CatRobot ที่ค้างอยู่จริง แล้วจึงใช้:
-
-```
+```bash
 kill -TERM PID_HERE
 ```
 
-ถ้า `STAT` เป็น `T`/\`t\` (โปรแกรมถูกพักด้วย `Ctrl+Z`) ให้ตรวจความปลอดภัยและตัดกำลังมอเตอร์ก่อน แล้วจึงใช้ `kill -CONT PID_HERE` ตามด้วย `kill -TERM PID_HERE` เพื่อปิดอย่างเป็นระเบียบ; คำสั่ง `CONT` อาจทำให้โค้ดเริ่มทำงานใหม่ทันที อย่าใช้ขณะรถสามารถเคลื่อนที่ได้
+If the process is in state `T`/`t` because of `Ctrl+Z`, do not resume it with motor power connected. Once the motor is safely disconnected, you may use `kill -CONT PID_HERE` followed by `kill -TERM PID_HERE`; `CONT` can immediately resume active robot code.
 
-ตรวจซ้ำจนเห็น `PORT 8080 FREE` ถ้ายังไม่ว่างหรือมี `MOTOR STOP FAILED` ให้หยุดการทดสอบและตรวจสาเหตุ ไม่บังคับฆ่าโปรเซสขณะมอเตอร์มีกำลังไฟ
+Check again until port 8080 is free. If `MOTOR STOP FAILED` occurs, stop the experiment and investigate; do not forcibly kill processes while the motors are powered.
 
-### กรณี LiDAR ไม่สแกน
+### If LiDAR does not scan
 
-หากพอร์ตไม่มีโปรแกรมอื่นใช้อยู่ แต่ LiDAR ยังไม่เริ่ม ให้ปิด CatRobot และตัดกำลังมอเตอร์ก่อน ตรวจสายและพอร์ต แล้วลองถอด–เสียบ USB LiDAR เมื่อปลอดภัย จากนั้นทำ STEP 2 และ STEP 4 ซ้ำ อย่ารีเซ็ต Docker ทุกตัวหรือเปลี่ยนค่า Safety Gate เพื่อแก้ปัญหาพอร์ต
-
+If no other process owns the serial port, stop CatRobot, disconnect motor power, inspect cables and USB connections, and safely reconnect LiDAR if necessary. Repeat STEP 2 and STEP 4. Do not restart every Docker container or weaken the motor safety gate to bypass a serial problem.
 
 ---
 
+## STEP 5 — Verify the YOLO model and arrival audio
 
-## STEP 5 — ตรวจ YOLO Model และ Audio
-
-ทำหลังบูตครั้งแรก หรือเมื่อมีการเปลี่ยนโมเดล/ลำโพง/ไฟล์เสียง ก่อนเริ่มโปรแกรมหลัก
+Run once after boot or after changes to the model, speaker, or sound files.
 
 ```bash
 cd ~/CatRobot-YOLO-Detector
@@ -516,18 +515,17 @@ else
 fi
 ```
 
-การมีไฟล์ครบไม่ได้ยืนยันว่าเสียงออกลำโพงได้หรือโมเดลตรวจ Dino ได้จริง ต้องตรวจ Log ใน STEP 7 ด้วย **ไม่เล่นเสียงและไม่ขับมอเตอร์เป็นส่วนหนึ่งของการตรวจนี้**
+These are file-presence checks, not proof that YOLO detects the dinosaur or that sound is heard through the speaker. Check actual behavior and logs in STEP 7.
 
 ---
 
+## STEP 6 — Run CatRobot V6 (wheels-up only)
 
-## STEP 6 — รัน CatRobot V6 ล่าสุด (wheels-up)
+> Only run this command with the robot **secured on a stable stand, with all wheels raised** and a physical motor-power cutoff ready. This is not an approved floor-driving command.
 
-> **ทำเฉพาะเมื่อหุ่นยนต์ถูกยึดบนแท่นที่ล้อยกพ้นพื้นแล้ว** ป้องกันการไถล/หล่น และเตรียมการตัดกำลังมอเตอร์ไว้ นี่คือโหมดทดลอง ไม่ใช่คำสั่งใช้งานบนพื้น
+Copy the complete Bash block into the Raspberry Pi's SSH terminal. Do not insert blank lines between lines ending with `\`.
 
-**คัดลอกโค้ด Bash ทั้งชุดด้านล่างไปที่ SSH Terminal ของ Pi** ข้อควรระวัง: อย่าเว้นบรรทัดเปล่าระหว่างบรรทัดที่ลงท้ายด้วย `\` เพราะจะทำให้คำสั่งแตกเป็นหลายส่วน
-
-```
+```bash
 cd ~/CatRobot-YOLO-Detector
 source .venv/bin/activate
 sudo -v
@@ -536,7 +534,7 @@ unset CATROBOT_AVOIDANCE_V7 CATROBOT_AVOIDANCE_V3 CATROBOT_AVOIDANCE_V4 CATROBOT
 
 LIDAR_PORT="$(readlink -f /dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0)"
 if [ ! -c "$LIDAR_PORT" ]; then
-  echo 'FAIL: LIDAR PORT INVALID — DO NOT START ROBOT'
+  echo 'FAIL: LIDAR PORT INVALID - DO NOT START ROBOT'
 else
   CATROBOT_BENCH_SPEED_015=1 \
   CATROBOT_ORANGE_FOLLOW_TRIAL=1 \
@@ -563,13 +561,13 @@ else
 fi
 ```
 
-**ความเร็ว:** โค้ดด้านบนเปิด `CATROBOT_BENCH_SPEED_015=1` = คำสั่งเดินหน้าสูงสุด 0.150 m/s สำหรับ AUTO/MANUAL บนแท่น; `w` เป็นความเร็วหมุน หน่วย rad/s เช่น 0.190 rad/s ไม่ใช่ 0.190 m/s หากต้องทดสอบช่วงแรกด้วย 0.08 ให้ปิด Runner ก่อน แล้วเปลี่ยนบรรทัดเดียว `CATROBOT_BENCH_SPEED_015=1` เป็น `CATROBOT_STABLE_SPEED_08=1` พร้อมเปลี่ยนชื่อไฟล์ Log
+The `CATROBOT_BENCH_SPEED_015=1` profile uses up to **0.150 m/s translational speed** for the wheels-up AUTO/MANUAL tests. Angular velocity `w` is in **rad/s**, not m/s. For the earlier lower-speed trial, stop the runner and replace `CATROBOT_BENCH_SPEED_015=1` with `CATROBOT_STABLE_SPEED_08=1`, then choose a different log filename.
 
-**เปิดเว็บจากคอมพิวเตอร์ที่อยู่ในเครือข่ายเดียวกัน:** `http://192.168.1.11:8080` → ควรเริ่มใน STOPPED; ตรวจ STOP ก่อนทดลอง MANUAL/AUTO
+Open the web interface from a computer on the same network: **`http://192.168.1.11:8080`** (use the actual Pi IP). The robot should initially be in **STOPPED** mode. Verify STOP before switching to MANUAL or AUTO.
 
-### Log ที่ควรเห็นหลังเริ่มสำเร็จ
+### Expected startup logs
 
-```
+```text
 [VISION] YOLO warm-up OK
 [MOTOR] READY /cmd_vel subscribers=1
 [TMINI] Scanning: /dev/ttyUSB...
@@ -581,115 +579,103 @@ fi
 [WEB] Original teleop UI + real YOLO: http://192.168.1.11:8080
 ```
 
-หากเห็น `WEB HEARTBEAT LOST`, `AVOID`, `LIDAR scan stale`, `MOTOR ERROR`, หรือ `MOTOR STOP FAILED` อย่าปลด Gate; ตรวจ log และ STEP 2–4 ก่อน
-
+If you see `WEB HEARTBEAT LOST`, `AVOID`, `LIDAR scan stale`, `MOTOR ERROR` or `MOTOR STOP FAILED`, do not bypass safety checks. Review logs and STEP 2–4 first.
 
 ---
 
-
-## STEP 7 — ทดสอบ AUTO, SOS, Dino Arrival และ Resume (ล้อยกบนแท่น)
+## STEP 7 — Verify AUTO, SOS, Dino arrival and resume (wheels-up)
 
 ```text
-AUTO + ตรวจพบ Dino (YOLO TRACK >= 0.10 / 1 frame)
-               |
-               +-- Dino อยู่ไกลกว่าเกณฑ์ภาพ + เส้นทางปลอดภัย
-               |      -> FOLLOW (Servo ตาม + มอเตอร์ตาม Dino)
-               |
-               +-- Dino ใกล้ (box >= 4.5% ของพื้นที่ภาพ)
-               |      -> หยุดเดินหน้า + Servo จัด Dino ให้อยู่กลางภาพ
-               |      -> กลางภาพ, ผ่านเงื่อนไขเสียง/ความปลอดภัย
-               |      -> meow.wav (เสียงถึงเป้าหมาย)
-               |      -> ถ้า Dino ถอยจน box <= 3.06% ต่อเนื่อง 4 เฟรมใหม่
-               |      -> กลับ FOLLOW ถ้า Motor Gate อนุญาต
-               |
-               +-- AUTO กำลังเดินหน้าและ LiDAR ด้านหน้า < 36 ซม.
-                      -> หยุดมอเตอร์ทันที -> SOS หนึ่งชุด -> WAIT_HELP
-                      -> รอข้อมูล LiDAR ใหม่ต่อเนื่อง >= 2.5 วินาที
-                         และ >= 6 สแกนใหม่
-                      -> ต้องเห็น Dino ที่ผ่านเกณฑ์อีกครั้ง
-                      -> Front >= 29 ซม., Rear >= 29 ซม.,
-                         Side / 360 >= 26 ซม.
-                      -> หากจะเดินหน้า ต้อง Front >= 37 ซม.
-                      -> ตรวจเส้นทางที่จะขับด้วย Motor Safety Gate
-                      -> WAIT_HELP -> IDLE -> FOLLOW Dino ต่อ
-                         (หรือ ARRIVED ถ้า Dino ยังใกล้อยู่)
+AUTO + confirmed Dino (YOLO TRACK >= 0.10 / 1 frame)
+  |
+  +-- Dino is not yet close; directional gate allows movement
+  |     -> FOLLOW: camera servos track Dino and the base follows
+  |
+  +-- Dino is close (bounding-box area >= 4.5% of image)
+  |     -> stop advancing; center Dino with camera servos
+  |     -> once centering / arrival conditions are satisfied
+  |     -> play meow.wav as the distinct arrival sound
+  |     -> if Dino moves away and its box <= 3.06% for 4 new frames
+  |     -> FOLLOW again, only if the motor safety gate allows it
+  |
+  +-- During AUTO forward travel, front LiDAR < 0.36 m
+        -> stop motor -> SOS alert -> WAIT_HELP
+        -> require at least 2.5 seconds and 6 fresh scans
+        -> confirm Dino is visible again
+        -> front and rear general clearance >= 0.29 m
+        -> side and 360-degree clearance >= 0.26 m
+        -> any new forward motion needs front >= 0.37 m
+        -> re-check proposed motion with directional motor safety gate
+        -> WAIT_HELP -> IDLE -> FOLLOW again
+           (or ARRIVED if Dino still meets arrival conditions)
 ```
 
-### เกณฑ์ล่าสุด
+### Reference thresholds and behaviors
 
-| **รายการ**                                  | **ค่า**                             | **ผลที่ใช้**                                             |
-| ------------------------------------------- | ----------------------------------- | -------------------------------------------------------- |
-| AUTO STOP + เข้า WAIT_HELP ด้านหน้า         | < 36 ซม.                            | หยุดก่อนสิ่งกีดขวางขณะกำลังเดินหน้า                      |
-| AUTO กลับไปเดินหน้าหลัง WAIT_HELP           | >= 37 ซม.                           | ช่วยไม่ให้หยุด–ปลดซ้ำ                                    |
-| WAIT_HELP ด้านหน้า/หลัง (ตรวจพื้นที่ทั่วไป) | >= 29 ซม.                           | เงื่อนไขตรวจพื้นที่ ไม่ใช่อนุญาตให้เดินหน้าในระยะ 29 ซม. |
-| WAIT_HELP ด้านข้าง/ใกล้สุดรอบตัว            | >= 26 ซม.                           | เงื่อนไขก่อนปลดสถานะ                                     |
-| Motor Gate เดินหน้า/ด้านข้าง                | 28 / 26 ซม.                         | เป็นชั้นป้องกันแยกต่างหาก                                |
-| ระยะฉุกเฉินรอบ 360°                         | 22 ซม.                              | ฉุกเฉินแยกจาก WAIT_HELP                                  |
-| ปลด WAIT_HELP                               | 2.5 วินาที + 6 สแกนใหม่ + เห็น Dino | ต้องผ่านการตรวจทิศทางจริงด้วย                            |
-| YOLO Tracking                               | conf `0.10`, `1 frame`              | ยังคงค่าที่เลือกไว้                                      |
-| Dino ใกล้ (box area)                        | 4.5% ของภาพ                         | ไม่ใช่ระยะเป็นเซนติเมตร                                  |
-| Dino ออกห่าง                                | ≤3.06% ของภาพ × 4 เฟรมใหม่          | กลับ FOLLOW เมื่อตรวจเส้นทางผ่าน                         |
+| Behavior | Reference threshold | Meaning |
+| --- | --- | --- |
+| AUTO forward stop and WAIT_HELP | Front `< 0.36 m` | Stop before a detected front obstacle |
+| Forward motion after WAIT_HELP | Front `>= 0.37 m` | Forward rearm hysteresis |
+| WAIT_HELP general front/rear clearance | `>= 0.29 m` | Required for state release; **not** permission to drive forward at 29 cm |
+| WAIT_HELP side/360-degree clearance | `>= 0.26 m` | Required before releasing help state |
+| Directional motor gate | Front/side `0.28 / 0.26 m` | Separate motor safety layer |
+| 360-degree emergency threshold | `0.22 m` | Emergency condition separate from WAIT_HELP |
+| WAIT_HELP release | `>= 2.5 s` + 6 new scans + Dino confirmation | The directional safety gate still applies |
+| YOLO tracking | Confidence `0.10`, 1 frame | Selected trial settings |
+| Dino close / arrived | Bounding-box area `4.5%` | Relative image area, **not** distance in centimeters |
+| Dino moves away | Box `<= 3.06%` for 4 new frames | May resume following only after safety checks |
 
-**หมายเหตุ:** เงื่อนไข `36 ซม.` ใช้กับการเดินหน้า AUTO และขึ้นอยู่กับการวัดระยะจาก LiDAR ไม่ใช่จากกันชนจริง รถยังอาจชนวัตถุที่ LiDAR 2D ไม่เห็น หรือชนจากระยะเบรกไม่พอ โดยเฉพาะที่ 0.15 m/s. `WAIT_HELP` ไม่ได้ถอยหรือหมุนหาทางอ้อมอัตโนมัติ; หากยังไม่ปลอดภัย รถต้องหยุดและรอการช่วยเหลือ
+The LiDAR thresholds are measured from the **LiDAR sensor origin**, not from the front bumper. A 2D LiDAR cannot reliably detect every low object or blind spot, and stopping distance at `0.15 m/s` has not been validated. **WAIT_HELP does not autonomously reverse or plan a bypass route** in this selected V6 assisted-help mode. If a safe path is not available, the robot must remain stopped and await assistance.
 
-### ตรวจ Flow ผ่าน Log
+### Inspect behavior logs
 
-```
+```bash
 grep -E 'BENCH SPEED|STABLE SPEED|BRIDGE_DIAG speed_limit|DINO CAMERA|ORANGE FOLLOW|DRIVE GATE|REAL MOTOR|AUTO ZERO DIAG|HELP V6|HELP WAIT DIAG|HELP V6 SOS|DINO ARRIVAL V6|DINO CLOSE MEOW|Playing meow.wav|OBSTACLE BUZZER|MOTOR ERROR|MOTOR STOP FAILED' \
   ~/catrobot_v6_sos36_flow_final_015.log | tail -n 180
 ```
 
-หากไม่เห็น `Playing meow.wav` แต่ได้ `meow_7.wav` หรือ `meow_m.wav` นั่นคือเสียงแมวชุดปกติ **ไม่ใช่เสียงถึง Dino**; ต้องตรวจเงื่อนไขขนาดกล่องและตำแหน่งกลางภาพอีกครั้ง
+Hearing `meow_7.wav` or `meow_m.wav` is **not** the same as the distinct `meow.wav` arrival sound. If `Playing meow.wav` does not appear, inspect the target-size and image-centering conditions before treating the arrival test as passed.
 
-### ทดสอบบนพื้น (เฉพาะหลังสอบเทียบผ่าน)
+### About future floor testing
 
-ส่วนนี้เป็น **เงื่อนไขอนุมัติให้ทดสอบในอนาคต ไม่ใช่คำสั่งให้เริ่มขับทันที**: ต้องยืนยันการเบรกที่ความเร็วจริง, ระยะจาก LiDAR ถึงกันชนหน้า/หลัง, พื้นที่กวาดของล้อและตัวรถขณะหมุน, วัตถุที่อยู่ต่ำกว่าระนาบ LiDAR, ปุ่ม STOP/การตัดกำลังไฟ และสถานะหลุดสัญญาณเว็บ/ROS2 จึงค่อยจัดทดสอบควบคุมบนพื้นแยกต่างหาก พร้อมคนคุมสวิตช์กำลังมอเตอร์
-
-หากยังไม่ผ่านข้อใด ให้คงการทดสอบแบบยกล้อเท่านั้น ไม่ลดเกณฑ์ LiDAR เพื่อให้รถเคลื่อนที่ได้
-
+Do **not** infer floor safety from wheels-up success. Before any separately controlled floor trial, verify real braking distance, the LiDAR-to-bumper offsets, swept space during turns, hazards below the LiDAR scanning plane, STOP/physical power cutoff, and safe behavior on loss of web/ROS 2 communication. Keep using wheels-up tests until those checks have passed.
 
 ---
 
+## STEP 8 — STOP, exit the runner and shut down safely
 
-## STEP 8 — STOP, ปิดโปรแกรมและ Shutdown ให้ถูกต้อง
+1. Press **STOP** in the web UI and physically verify that the wheels are stationary.
+2. Press **`Ctrl+C`** in the terminal running CatRobot (**not** `Ctrl+Z`).
+3. Confirm there is no remaining runner and the web port is free:
 
-1. กด **STOP** ที่หน้าเว็บ และยืนยันว่าล้อหยุดจริง
-2. ใน Terminal ที่กำลังรัน CatRobot ให้กด **`Ctrl+C`** (ไม่ใช่ `Ctrl+Z`)
-3. ตรวจว่าเว็บพอร์ตว่างและไม่มี Runner ค้าง
-
-```
+```bash
 sudo ss -ltnp | grep ':8080' || echo 'PORT 8080 FREE'
 ps -eo pid,ppid,stat,cmd | grep -E '[r]un_teleop_yolo_real.py' || echo 'NO CATROBOT RUNNER'
 ```
 
-หากต้องเปิดใหม่ในบูตเดียวกัน ให้กลับไป **STEP 4** ก่อนทุกครั้ง ไม่ต้องทำ STEP 1–3 ใหม่หากไม่มี USB/ROS2/ไฟเลี้ยงเปลี่ยนแปลง
+For another run during the same boot, repeat **STEP 4** before STEP 6. No need to repeat STEP 1–3 unless code, USB, ROS 2 or power conditions changed.
 
-หาก STOP ไม่หยุดล้อหรือมี `MOTOR STOP FAILED` ให้ตัดกำลังมอเตอร์และหยุดทดสอบก่อนตรวจระบบ ห้ามอาศัยการปิด SSH หรือ `Ctrl+Z` เพื่อหยุดมอเตอร์
+If STOP fails or the motor reports `MOTOR STOP FAILED`, disconnect motor power and stop testing. Never rely on closing SSH or pressing `Ctrl+Z` as an emergency stop.
 
-หากต้องการ **Shutdown Raspberry Pi ทั้งเครื่อง** หลังตรวจว่าล้อหยุดแล้วและปิด Runner สำเร็จ ให้บันทึกงานที่กำลังทำอยู่และใช้:
+If you need to power down the Raspberry Pi after the robot is safely stopped and the runner has exited:
 
 ```bash
 sudo shutdown -h now
 ```
 
-รอให้ Pi ปิดระบบเรียบร้อยก่อนถอดไฟเลี้ยง อย่าใช้ Shutdown แทนปุ่ม STOP ฉุกเฉิน และอย่า Shutdown ขณะมอเตอร์ยังสั่งเคลื่อนที่อยู่
-
+Let the Pi finish shutting down before removing its power source. `shutdown` is not a substitute for a physical emergency stop.
 
 ---
 
+## Quick reference for the next lab session
 
-## Quick Reference — คำสั่งสั้นสำหรับวันถัดไป
+| Situation | Steps |
+| --- | --- |
+| Fresh Raspberry Pi boot | STEP 0 → 1 → 2 → **3 (inspect Docker, stop only the wrong motor driver, start `affectionate_lamport`, verify ROS 2)** → 4 → 5 → 6 |
+| Re-running CatRobot in the same boot | STOP → `Ctrl+C` → STEP 4 → 6 |
+| Wrong Docker motor driver auto-started | STEP 3.1 → 3.2 → 3.3 → 3.4 before STEP 6 |
+| USB / LiDAR / Docker fault | STOP → exit runner → STEP 2 → 3 → 4 → 5 if needed → 6 |
+| Source code updated | STOP → exit runner → STEP 1 → 2–5 as needed → 6 |
+| End of experiment | STEP 8: STOP → `Ctrl+C` → check runner/port → safe shutdown |
 
-**หลังเปิด Pi ใหม่:** STEP 0 → 1 → 2 → **3 (ดู Container, หยุดเฉพาะ Driver ผิด, เปิด `affectionate_lamport`, ตรวจ ROS2)** → 4 → 5 → 6
-
-**ถ้าจะรัน CatRobot รอบที่สองในบูตเดียวกัน:** STOP + `Ctrl+C` → STEP 4 → 6 (ย้อน STEP 3 หาก Docker เปลี่ยน)
-
-**ถ้า Docker เปิดผิดตัวหลังรีบูต:** STEP 3.1 → 3.2 → 3.3 → 3.4 ก่อนเริ่ม STEP 6
-
-**ถ้า LiDAR/USB/Docker มีปัญหา:** STOP → ปิด Runner → STEP 2 → 3 → 4 → 5 (ตามอาการ) → 6
-
-**ถ้าเปลี่ยนหรืออัปเดตโค้ด:** STOP → ปิด Runner → STEP 1 → 2–5 (ตามความจำเป็น) → 6
-
-**เมื่อจบการทดลอง:** STEP 8: STOP → `Ctrl+C` → ตรวจพอร์ต/โปรเซส → ปิดเครื่องอย่างปลอดภัย
-
-เอกสารนี้บันทึกการตั้งค่าและขั้นตอนตรวจจากแพตช์/Log ที่เคยใช้งาน ไม่ได้ยืนยันว่าปลอดภัยต่อการขับบนพื้นจริงหรือครอบคลุมสิ่งกีดขวางทุกระดับความสูง
+This document records the configuration and verification procedures used during development. It is **not** a certificate of safe autonomous floor operation or guaranteed detection of obstacles at every height.
