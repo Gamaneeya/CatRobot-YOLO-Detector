@@ -28,14 +28,14 @@ ENABLE_AUTO_FOLLOW = False
 MANUAL_LIDAR_REQUIRED = False
 
 YOLO_CONF = 0.10
-TRACK_CONF = 0.60
+TRACK_CONF = 0.18
 GREEN_CONF = 0.60
-CONFIRM_FRAMES = 3
+CONFIRM_FRAMES = 5
 IMG_SIZE = 640
 
 FOLLOW_LEFT = 0.42
 FOLLOW_RIGHT = 0.58
-SIM_STOP_AREA_RATIO = 0.22
+SIM_STOP_AREA_RATIO = 0.30
 SIM_FORWARD_SPEED = 0.08
 SIM_TURN_SPEED = 0.25
 MAX_AUTO_AGE = 0.50
@@ -433,6 +433,12 @@ def set_keys(keys):
 
     with lock:
         if mode == "STOPPED":
+            # Keep wheels stopped, but preserve original H and camera arrows.
+            # The watchdog still releases H when browser commands stop.
+            pan = ("j" in keys) - ("l" in keys)
+            tilt = ("i" in keys) - ("k" in keys)
+            cmd[:] = [0.0, 0.0, "h" in keys, pan, tilt]
+            last = time.monotonic()
             return
 
         v = LIN * (
@@ -637,6 +643,15 @@ class Camera:
                     )
 
                     cx = ((x1 + x2) / 2) / width
+                    cy = ((y1 + y2) / 2) / height
+                    previous = getattr(self, '_dino_prev_center', None)
+                    if previous is not None and (
+                        abs(cx - previous[0]) > 0.20
+                        or abs(cy - previous[1]) > 0.25
+                    ):
+                        # Abrupt jump: re-confirm before any new auto motion.
+                        self.verified_frames = 1
+                    self._dino_prev_center = (cx, cy)
 
                     area = (
                         max(0.0, x2 - x1)
@@ -647,6 +662,10 @@ class Camera:
                     confidence = float(
                         target.conf[0]
                     )
+
+                    # Dino optical center, refreshed from the SAME YOLO frame.
+                    self._autocenter_xy = (float(cx), float((y1 + y2) / (2 * height)))
+                    self._autocenter_seen_at = time.monotonic()
 
                     detail = (
                         f"X: {cx:.2f} | "
@@ -668,6 +687,9 @@ class Camera:
 
                 else:
                     self.verified_frames = 0
+                    self._autocenter_xy = None
+                    self._autocenter_seen_at = 0.0
+                    self._dino_prev_center = None
                     v = 0.0
                     turn = 0.0
 
@@ -730,6 +752,12 @@ class Camera:
                     2
                 )
 
+                # CAMERA_FIRST_CROSSHAIR: optical X/Y center in AUTO only.
+                with lock:
+                    _preview_auto = mode == 'AUTO'
+                if _preview_auto:
+                    cv2.drawMarker(frame, (width // 2, height // 2),
+                                   (255, 255, 0), cv2.MARKER_CROSS, 16, 1)
                 self.encode(frame)
 
             except Exception as exc:
@@ -788,6 +816,9 @@ def control_loop(motor_instance):
 
                 manual_v, manual_w, horn, dp, dt = cmd
                 active_mode = mode
+                if active_mode == 'AUTO' and globals().get('_dino_autocenter_running', False):
+                    dp = dt = 0
+                    center_req.clear()
 
                 if active_mode == "AUTO":
                     if not heartbeat_ok:
@@ -821,9 +852,8 @@ def control_loop(motor_instance):
                     v = 0.0
                     w = 0.0
                     action = "STOP LATCHED"
-                    horn = False
-                    dp = 0
-                    dt = 0
+                    # Horn and limited camera controls remain available.
+                    # Wheel velocity always remains zero in STOPPED.
 
             actual_v, actual_w = motor_instance.send(
                 v,
@@ -862,10 +892,7 @@ def control_loop(motor_instance):
                         action=action
                     )
 
-            if (
-                center_req.is_set()
-                and active_mode != "STOPPED"
-            ):
+            if center_req.is_set():
                 center_req.clear()
 
                 dp = 0
@@ -875,6 +902,10 @@ def control_loop(motor_instance):
 
                 motor_instance.servo(PAN_ID, pan)
                 motor_instance.servo(TILT_ID, tilt)
+
+            if active_mode == 'MANUAL' and globals().get('_dino_autocenter_running', False):
+                pan = int(motor_instance.pan)
+                tilt = int(motor_instance.tilt)
 
             if dp:
                 new_pan = clamp(
@@ -1367,3 +1398,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# DINO_UPGRADE_20261108: installed
+
+# CATROBOT_CAMERA_FIRST_V2_20261108: installed
